@@ -8,6 +8,7 @@ import { dispatchResearch, validateArtifact, artifactPathFor } from "../ultrawor
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { fileURLToPath } from "url";
 
 let pass = 0;
 let fail = 0;
@@ -16,7 +17,7 @@ function check(name: string, cond: boolean, detail?: string) {
   else { fail++; console.log(`  FAIL ${name}${detail ? " — " + detail : ""}`); }
 }
 
-const here = new URL(".", import.meta.url).pathname.slice(1).replace(/\\/g, "/");
+const here = fileURLToPath(new URL(".", import.meta.url));
 const fakePi = join(here, "fake_pi.mjs");
 
 // ── 1. validateArtifact unit edges ────────────────────────────────
