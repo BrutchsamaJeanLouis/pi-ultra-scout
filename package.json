@@ -43,6 +43,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.1.0",
+    "@earendil-works/pi-tui": ">=0.1.0",
     "typebox": "*"
   },
   "devDependencies": {
@@ -56,11 +57,5 @@
     ],
     "video": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout/raw/master/docs/demo.mp4",
     "image": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout/raw/master/docs/preview.png"
-  },
-  "bundledDependencies": [
-    "@earendil-works/pi-ai",
-    "@earendil-works/pi-tui",
-    "@earendil-works/pi-agent-core",
-    "typebox"
-  ]
+  }
 }
