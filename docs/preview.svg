@@ -1,0 +1,14 @@
+<svg width="800" height="450" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="450" fill="#1a1a2e"/>
+  <text x="400" y="150" font-family="Georgia, serif" font-size="32" fill="#2e7d32" text-anchor="middle" font-weight="bold">pi-ultra-scout</text>
+  <text x="400" y="200" font-family="Georgia, serif" font-size="18" fill="#fff" text-anchor="middle">Sequential Web Nudges for Small Local Coding Agents</text>
+  <rect x="100" y="250" width="200" height="120" fill="#2e7d32" rx="8"/>
+  <text x="200" y="320" font-family="Georgia, serif" font-size="16" fill="#fff" text-anchor="middle">WITHOUT ulw</text>
+  <text x="200" y="345" font-family="Georgia, serif" font-size="14" fill="#ddd" text-anchor="middle">4B: DQ 0.00</text>
+  <text x="200" y="365" font-family="Georgia, serif" font-size="14" fill="#ddd" text-anchor="middle">FAILS</text>
+  <rect x="500" y="250" width="200" height="120" fill="#c0392b" rx="8"/>
+  <text x="600" y="320" font-family="Georgia, serif" font-size="16" fill="#fff" text-anchor="middle">WITH ulw</text>
+  <text x="600" y="345" font-family="Georgia, serif" font-size="14" fill="#ddd" text-anchor="middle">4B: DQ 1.00</text>
+  <text x="600" y="365" font-family="Georgia, serif" font-size="14" fill="#ddd" text-anchor="middle">PERFECT</text>
+  <text x="400" y="420" font-family="Georgia, serif" font-size="12" fill="#888" text-anchor="middle">The mechanism protects weak local models</text>
+</svg>

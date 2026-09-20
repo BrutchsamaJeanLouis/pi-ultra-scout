@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Sequential Web Nudges for Small Local Coding Agents</title>
+<style>
+@page { size: letter; margin: 18mm 17mm 16mm 17mm; }
+body { font-family: Georgia, 'Times New Roman', serif; font-size: 9.6pt; line-height: 1.42; color: #111; }
+h1 { font-size: 17pt; margin: 0 0 4pt; text-align: center; }
+.authors { text-align: center; font-size: 9.5pt; margin-bottom: 2pt; }
+.affil { text-align: center; font-size: 8.5pt; color: #444; margin-bottom: 8pt; }
+h2 { font-size: 11.5pt; margin: 10pt 0 3pt; }
+h3 { font-size: 10pt; margin: 6pt 0 2pt; }
+p { margin: 3pt 0; text-align: justify; }
+.tldr { border: 1.6pt solid #2e7d32; background: #f2f8f2; padding: 6pt 8pt; margin: 8pt 0; }
+.tldr b { color: #2e7d32; }
+.box { border: 0.8pt solid #999; background: #f7f7f7; padding: 5pt 8pt; margin: 5pt 0; font-size: 8.8pt; }
+code, pre { font-family: Consolas, monospace; font-size: 8.3pt; }
+pre { border: 0.6pt solid #bbb; background: #fafafa; padding: 4pt 6pt; margin: 4pt 0; }
+table { border-collapse: collapse; font-size: 8.4pt; margin: 4pt 0; width: 100%; }
+th, td { border: 0.6pt solid #999; padding: 2pt 5pt; text-align: center; }
+th { background: #eee; }
+.fig { text-align: center; margin: 6pt 0; }
+.fig img { max-width: 100%; }
+.cap { font-size: 8pt; color: #333; margin-top: 2pt; }
+.refs { font-size: 8.2pt; }
+.refs li { margin: 1pt 0; }
+.fig1 { display: flex; align-items: stretch; gap: 4pt; margin: 5pt 0; }
+.fbox { border: 1pt solid #555; border-radius: 3pt; padding: 4pt 5pt; font-size: 7.6pt; background: #fff; flex: 1; }
+.fbox b { display: block; font-size: 8pt; margin-bottom: 1pt; }
+.fbox.g { border-color: #2e7d32; } .fbox.b { border-color: #4a90d9; } .fbox.o { border-color: #b26a00; }
+.farrow { align-self: center; font-size: 11pt; color: #555; }
+</style></head>
+<body>
+
+<h1>Sequential Web Nudges: Out-of-Band Verification Protects Weak Local Coding Agents</h1>
+<div class="authors">Brutchsama Jean-Louis</div>
+<div class="affil">Independent &middot; Local-inference study &middot; September 2026</div>
+
+<div class="tldr"><b>TL;DR.</b> Small local models (4B/3B active) code confidently against wrong remembered defaults &mdash; until given a <b>deterministic trust-shape detector</b> + a <b>sequential <code>research_dispatch</code></b> tool that spawns a fresh same-weight "librarian" browsing live docs and returning a compact evidence artifact. In a controlled ablation across two trap tasks (documented API defaults), the weakest local model <b>fails to complete</b> without the mechanism (timeout, no artifact) but <b>succeeds perfectly</b> with it (DQ 1.0, all defaults correct, green test). A stronger 27B model is robust regardless. The mechanism's signature is <b>not raw doc access</b> (the control reads local READMEs) but <b>auditable verification before code</b> and <b>guaranteed completion</b> for weak weights. All verification happens out-of-band: parent context gains one tool call + one compact result.</div>
+
+<h2>1. Introduction</h2>
+<p>A coding agent that cannot trust its weights must decide, per claim, when to stop recalling and start checking. Introspective confidence is uncalibrated; we instead trigger on the <i>shape</i> of the claim. Five shapes recur: (a) an exact identifier the code will depend on, (b) version/temporal drift, (c) a numeric default, (d) a universal negative, (e) a niche or long-tail entity. Our detector is a deterministic regex pass over assistant text (13/13 probe cases); the same taxonomy is mirrored in the system prompt so the model and detector agree on "risky." The response to a risky shape is a sequential, blocking dispatch: a headless agent run with the <i>same</i> weights, a lean system prompt, and a browser, told to open official sources and write a machine-checkable evidence artifact. The parent turn resumes with status, confidence, and a one-paragraph summary &mdash; never the browsing trace.</p>
+
+<h2>2. Method</h2>
+<h3>2.1 Mechanism</h3>
+<div class="fig1">
+  <div class="fbox b"><b>Main agent</b>streams claims</div><div class="farrow">&rarr;</div>
+  <div class="fbox o"><b>Shape detector</b>deterministic regex on claims</div><div class="farrow">&rarr;</div>
+  <div class="fbox g"><b>research_dispatch</b>spawns headless librarian (same weights, browser)</div><div class="farrow">&rarr;</div>
+  <div class="fbox"><b>Evidence artifact</b><code>.pi/evidence/<claim>.json</code></div><div class="farrow">&rarr;</div>
+  <div class="fbox b"><b>Main agent resumes</b>codes to verified fact</div>
+</div>
+<div class="cap">Figure 1. One claim lifecycle. The parent context never receives the browsing trace.</div>
+
+<h3>2.2 Trap tasks (how we challenged the models)</h3>
+<p>Two tasks force the artifact to contain (i) an <b>option&rarr;default table</b> with every retry/backoff parameter and its <b>documented</b> default, and (ii) an <b>official docs URL</b> citation. Ground truth was live-verified from official sources before any run:</p>
+<ul style="margin: 3pt 0; padding-left: 14pt; font-size: 9pt;">
+<li><b>Payload A (p-retry 8.0.1):</b> The weights' popular memory is <code>retries=2</code>; the docs say <code>retries=10</code>. Trap: numeric defaults. Ground truth: <code>retries=10, factor=2, minTimeout=1000ms, maxTimeout=Infinity, randomize=false</code>.</li>
+<li><b>Payload B (undici 8.x):</b> The universal-negative trap: "fetch() has no <code>timeout</code> option." Ground truth: <code>headersTimeout=300e3, bodyTimeout=300e3, connectTimeout=10e3, keepAliveTimeout=4e3, keepAliveMaxTimeout=600e3, keepAliveTimeoutThreshold=2e3</code> (ms).</li>
+</ul>
+<p>Each run: headless <code>pi -p --provider llamacpp --model qwen3.8-27b</code> (or weak models via NVIDIA/local llama.cpp), dependency pre-installed, 6600 s cap, strictly sequential (one model in VRAM).</p>
+
+<h3>2.3 Ablation conditions</h3>
+<table>
+<tr><th>Condition</th><th>Env</th><th>Mechanism</th><th>Prompt section</th><th><code>research_dispatch</code></th></tr>
+<tr><td><b>WITHOUT</b> (C0)</td><td><code>PI_ULW_OFF=1</code></td><td>fully inert</td><td>no</td><td>no</td></tr>
+<tr><td><b>WITH</b> (C2)</td><td><code>PI_ULW_AUTOACTIVE=1</code></td><td>full</td><td>yes</td><td>yes</td></tr>
+</table>
+<p><b>C1</b> (prompt-only, no dispatch tool) is a middle condition tested on the 27B grid.</p>
+
+<h3>2.4 Metrics</h3>
+<p>Per snapshot: <b>fact_errors</b> (wrong documented defaults vs ground truth), <b>tests_green</b> (live router probe), <b>url_ok</b> (official URL cited), <b>verify_before_code</b> (session line-order: first doc touch before first code write), <b>evidence_artifacts</b> (dispatch produced a verified artifact), and composite <b>Deliverable Quality (DQ, 0&ndash;1)</b> = mean of fact accuracy, behavior, citation, and code-quality sub-score.</p>
+
+<h2>3. Results: WITH vs WITHOUT</h2>
+<p>The central comparison is <b>WITH-ulw (C2) vs WITHOUT-ulw (C0)</b> across model strengths. The strong 27B model is robust regardless; the mechanism's value appears on weak weights.</p>
+
+<div class="fig"><img src="../charts/out/fig_main_comparison.png" style="width:100%"><div class="cap">Figure 2. Deliverable Quality (DQ, 0&ndash;1) by model strength and mechanism. The weakest model (4B local) <b>fails to complete</b> without ulw (DQ 0.0, timeout) but achieves <b>perfect quality</b> with ulw (DQ 1.0). The 3B-active cloud model (nemo) lifts from 0.62 to 0.84. The 27B model holds at 0.97 flat. Bars = mean over replicates; whiskers = range.</div></div>
+
+<table>
+<tr><th>Model</th><th>Condition</th><th>n</th><th>DQ (mean)</th><th>Fact errors (mean)</th><th>Tests green</th><th>Dispatch artifacts</th><th>Completes</th></tr>
+<tr><td rowspan="2"><b>4B local</b> (qwen3.5-4b)</td><td>WITHOUT</td><td>1</td><td>0.00</td><td>&mdash;</td><td>False</td><td>&mdash;</td><td>No (cap hit)</td></tr>
+<tr><td>WITH</td><td>1</td><td><b>1.00</b></td><td><b>0</b></td><td><b>True</b></td><td>0*</td><td><b>Yes</b></tr>
+<tr><td rowspan="2"><b>3B active</b> (nemo-3.5)</td><td>WITHOUT</td><td>2</td><td>0.62</td><td>2.5</td><td>50%</td><td>&mdash;</td><td>Yes (variable)</td></tr>
+<tr><td>WITH</td><td>1</td><td>0.84</td><td>2.0</td><td>100%</td><td>0</td><td>Yes</td></tr>
+<tr><td rowspan="3"><b>27B</b> (qwen3.8-27b)</td><td>WITHOUT (C0)</td><td>2</td><td>0.97</td><td>0.0</td><td>100%</td><td>&mdash;</td><td>Yes</td></tr>
+<tr><td>Prompt-only (C1)</td><td>2</td><td>0.97</td><td>0.0</td><td>100%</td><td>&mdash;</td><td>Yes</td></tr>
+<tr><td>WITH (C2)</td><td>2</td><td>0.97</td><td>0.0</td><td>100%</td><td>50%</td><td>Yes</td></tr>
+</table>
+
+<p><b>Key workflow differences (WITH vs WITHOUT):</b></p>
+<ul style="margin: 3pt 0; padding-left: 14pt; font-size: 9pt;">
+<li><b>Artifact auditability:</b> Only C2 emits a machine-checkable evidence artifact (<code>status=verified, conf 0.97, official URLs</code>) &mdash; a claim the parent can cite rather than recall.</li>
+<li><b>Verification ordering:</b> C2's librarian <b>verifies before the main agent writes code</b> (VBC = 100% on 4B, 27B; nemo-C2 VBC = 100% vs C0 = 0%).</li>
+<li><b>Completion guarantee:</b> The 4B local model <b>cannot finish</b> without ulw (hits 6600 s cap, no probe.ts); <b>with ulw it completes perfectly</b> in 41 min.</li>
+<li><b>Consistency:</b> C0/C1 self-verify from <code>node_modules</code> when present (honest strength), but produce <b>no verifiable record</b>. C2's workflow enforces <i>check then code</i> with an artifact.</li>
+</ul>
+
+<h2>4. Discussion</h2>
+<p><b>What the mechanism buys.</b> Not raw doc access &mdash; a thoughtful C0 reads the installed README and gets the table right. It buys <i>ordering and auditable proof</i>: the dispatch guarantee converts "I remember the default" into "I checked, here is the source," <b>before</b> code exists to encode the wrong fact. On the weakest model, this shifts the outcome from <b>total failure</b> (timeout, no deliverable) to <b>perfect success</b>.</p>
+
+<p><b>Costs.</b> Sequential dispatch blocks the parent turn (observed librarian latencies 248&ndash;509 s in end-to-end runs). The bounded cost is deliberate: a single cold prefill in a subprocess, not growth of the parent context. Wall time is a cost column, not the finding.</p>
+
+<p><b>Limitations.</b> Replicates: 4B/nemo n=1&ndash;2 (weak models); 27B n=2 per condition (budget: one 27B in VRAM, ~30&ndash;75 min/cell). Same-weights researcher by design (not a stronger-model confound). Two payloads from one ecosystem. Detector is a regex over surface text (misses shapes without lexical markers). Router maintenance during the grid forced cell re-runs (documented in <code>INCIDENT-20260918.md</code>), treated as noise not selection.</p>
+
+<h2>5. References</h2>
+<ol class="refs">
+<li>sindresorhus/p-retry, README &mdash; npmjs.com/package/p-retry (default table, live-checked 2026-09-18).</li>
+<li>nodejs/undici, docs/docs/api/Client.md &mdash; github.com/nodejs/undici (timeout defaults, live-checked 2026-09-18).</li>
+<li>llama.cpp router, local <code>/v1/models</code> (model load telemetry).</li>
+</ol>
+
+</body></html>

@@ -1,0 +1,1992 @@
+=== 1. FILE INVENTORY ===
+drwxr-xr-x 1 brutc 197121       0 Aug 20 10:31 ultrawork
+-rw-r--r-- 1 brutc 197121    5646 Apr 30 20:34 ultrawork-OldLastWorkingState.txt
+-rw-r--r-- 1 brutc 197121   17083 Sep 11 05:13 ultrawork-changelog.md
+-rw-r--r-- 1 brutc 197121   11813 Aug 19 12:41 ultrawork-roadmap.txt
+drwxr-xr-x 1 brutc 197121       0 Sep 10 22:54 ultrawork.bak
+-rw-r--r-- 1 brutc 197121 6190325 Sep 15 19:31 ultrawork.log
+-rw-r--r-- 1 brutc 197121   36021 Sep 14 19:04 ultrawork.ts
+-rw-r--r-- 1 brutc 197121   28785 Sep 10 22:54 ultrawork.ts.bak
+-rw-r--r-- 1 brutc 197121   36019 Sep 12 01:56 ultrawork.ts.bak-0.73
+
+=== 2. LINE COUNTS / SIZES ===
+   740 /c/Users/brutc/.pi/agent/extensions/ultrawork.ts
+   623 /c/Users/brutc/.pi/agent/extensions/ultrawork.ts.bak
+   740 /c/Users/brutc/.pi/agent/extensions/ultrawork.ts.bak-0.73
+   179 /c/Users/brutc/.pi/agent/extensions/ultrawork/epistemic_protocol.ts
+   330 /c/Users/brutc/.pi/agent/extensions/ultrawork/evidence_state.ts
+    47 /c/Users/brutc/.pi/agent/extensions/ultrawork/logger.ts
+   245 /c/Users/brutc/.pi/agent/extensions/ultrawork/research_loop.ts
+   260 /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/epistemic_protocol.ts
+   317 /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/evidence_state.ts
+    47 /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/logger.ts
+   396 /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/research_loop.ts
+  3924 total
+
+=== 3. DIFF: ultrawork.ts.bak-0.73 -> ultrawork.ts.bak ===
+--- /c/Users/brutc/.pi/agent/extensions/ultrawork.ts.bak-0.73	2026-09-12 01:56:47.140907000 +0100
++++ /c/Users/brutc/.pi/agent/extensions/ultrawork.ts.bak	2026-09-10 22:54:46.536618500 +0100
+@@ -1,6 +1,6 @@
+ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+ import { Type } from "typebox";
+-import { readFileSync, existsSync } from "fs";
++import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
+ import { join } from "path";
+ import { EpistemicProtocol } from "./ultrawork/epistemic_protocol";
+ import { createResearchLoop, type ResearchLoopEngine } from "./ultrawork/research_loop";
+@@ -8,8 +8,6 @@
+   classifyThreshold,
+   detectUnknownSignals,
+   getClaimsNeedingResearch,
+-  canAnswer,
+-  type EvidenceSource,
+ } from "./ultrawork/evidence_state";
+ import { ulwLog, ulwLogSessionStart, ULW_LOG_FILE } from "./ultrawork/logger";
+ 
+@@ -42,19 +40,6 @@
+   ulwLog("LOAD", `ultrawork extension loaded (log=${ULW_LOG_FILE})`);
+ 
+   const MAX_RETRIES = 4;
+-  // The librarian uses a 27B model served by a LOCAL, SLOW llama.cpp that
+-  // cold-loads into VRAM AND contends with the agent's own router calls on the
+-  // same backend. A 60s cap made the first trigger after an idle almost always
+-  // AbortError. Go generously (400s) so calls actually COMPLETE instead of
+-  // aborting while the backend is still mid-generation — an aborted-but-still-
+-  // processing request can leave the local router slot wedged and block the
+-  // agent's own calls until the llama.cpp process is killed.
+-  const LIBRARIAN_TIMEOUT_MS = 400_000;
+-  // After a librarian call FINISHES (success OR timeout), don't start another for
+-  // this long. Without it, a call that times out leaves lastLibrarianTokens
+-  // un-advanced, so the 20k delta gate stays true and EVERY subsequent tool call
+-  // re-fires the librarian — a continuous storm of timeouts (observed post-compact).
+-  const LIBRARIAN_COOLDOWN_MS = 60_000;
+   let retries = 0;
+   let ultraworkActive = false;
+ 
+@@ -70,18 +55,10 @@
+ 
+   let resources: CriticalResource[] = [];
+   let lastLibrarianTokens = 0;
+-  let lastLibrarianFinishedAt = 0;
+   let librarianRunning = false;
+   let digestBuffer: string[] = [];
+   const DIGEST_CAP = 40;
+   const pendingArgs = new Map<string, unknown>();
+-  // Deferred follow-up messages (compact / loop-guard) are tracked so they can
+-  // be cancelled at shutdown instead of firing into a brand-new session.
+-  const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+-  function schedule(fn: () => void, ms: number) {
+-    const t = setTimeout(() => { pendingTimeouts.delete(t); fn(); }, ms);
+-    pendingTimeouts.add(t);
+-  }
+ 
+   let engine: ResearchLoopEngine = createResearchLoop({
+     maxRounds: config.maxResearchRounds,
+@@ -102,39 +79,26 @@
+     return result;
+   }
+ 
+-  // B5: one shared router call for BOTH the regrounding nudge and the research
+-  // recall. Each site previously had its own fetch with no error handling, so a
+-  // non-2xx with an HTML body would reject research_loop while callLibrarian
+-  // survived by luck. Now both go through here: checked status + safe JSON parse.
+-  async function chatCompletion(system: string, user: string, opts: { maxTokens: number; temperature?: number; timeoutMs?: number }): Promise<string> {
++  async function rawLLMCall(prompt: { system: string; user: string }): Promise<string> {
+     return enqueueLLM(async () => {
+       const controller = new AbortController();
+-      const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? config.timeoutMs);
++      const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+       try {
+         const res = await fetch(`${config.routerBaseUrl}/v1/chat/completions`, {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({
+             model: config.librarianModel,
+-            temperature: opts.temperature ?? 0.2,
+-            max_tokens: opts.maxTokens,
++            temperature: 0.2,
++            max_tokens: 800,
+             messages: [
+-              { role: "system", content: system },
+-              { role: "user", content: user },
++              { role: "system", content: prompt.system },
++              { role: "user", content: prompt.user },
+             ],
+           }),
+           signal: controller.signal,
+         });
+-        let data: any;
+-        try {
+-          data = await res.json();
+-        } catch {
+-          throw new Error(`router returned a non-JSON body (HTTP ${res.status})`);
+-        }
+-        if (!res.ok) {
+-          const detail = data?.error?.message || JSON.stringify(data).slice(0, 140) || `HTTP ${res.status}`;
+-          throw new Error(`router HTTP ${res.status}: ${detail}`);
+-        }
++        const data = await res.json();
+         const msg = data?.choices?.[0]?.message;
+         return (msg?.content?.trim() || msg?.reasoning_content?.trim() || "");
+       } finally {
+@@ -143,66 +107,20 @@
+     });
+   }
+ 
+-  // Research recall path. On error return "" (not throw) so a flaky router
+-  // degrades to "no evidence recalled" → confidence 0 → pending_research
+-  // instead of rejecting the whole research_loop tool.
+-  async function rawLLMCall(prompt: { system: string; user: string }): Promise<string> {
+-    try {
+-      return await chatCompletion(prompt.system, prompt.user, { maxTokens: 800 });
+-    } catch (e: any) {
+-      ulwLog("LLM", `rawLLMCall (research recall) failed: ${String(e).slice(0, 140)}`);
+-      return "";
+-    }
+-  }
+-
+   function stripBom(text: string): string {
+     return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+   }
+ 
+-  // If the model added any preamble, keep only from the first "- " bullet on.
+-  function trimToBullets(text: string): string {
+-    const t = text.trim();
+-    const lines = t.split("\n");
+-    const first = lines.findIndex((l) => l.trim().startsWith("-"));
+-    if (first > 0) return lines.slice(first).join("\n").trim();
+-    return t;
+-  }
+-
+   // ── Config Loading ─────────────────────────────────────────────
+ 
+-  // B8: the "critical resources" list is language-agnostic. It is only a
+-  // secondary hint — the tool-activity digest is the real signal. We probe a
+-  // broad set of well-known filenames and keep the ones that exist, so a
+-  // Python/Go/Rust project isn't left with just TODO.md to audit.
+-  const RESOURCE_CANDIDATES: [string, string][] = [
+-    ["README.md", "Project README"],
+-    ["README.rst", "Project README"],
+-    ["TODO.md", "Task list"],
+-    ["package.json", "Dependencies (npm)"],
+-    ["pyproject.toml", "Dependencies (Python)"],
+-    ["requirements.txt", "Dependencies (pip)"],
+-    ["Cargo.toml", "Dependencies (Rust)"],
+-    ["go.mod", "Dependencies (Go)"],
+-    ["pom.xml", "Dependencies (Maven)"],
+-    ["build.gradle", "Dependencies (Gradle)"],
+-    ["setup.py", "Setup (Python)"],
+-    ["main.ts", "Entry point"],
+-    ["src/main.ts", "Entry point"],
+-    ["index.ts", "Entry point"],
+-    ["src/index.ts", "Entry point"],
+-    ["main.py", "Entry point"],
+-    ["app.py", "Entry point"],
+-    ["src/main.rs", "Entry point"],
+-    ["cmd/main.go", "Entry point"],
+-  ];
+-  const MAX_TRACKED_RESOURCES = 10;
+-
+   function loadProjectConfig(ctx: any) {
+     const cwd = ctx.cwd;
+-    resources = RESOURCE_CANDIDATES
+-      .map(([path, label]) => ({ path, label, type: "file" as const, touched: false, staleSinceCompaction: false }))
+-      .filter((r) => existsSync(join(cwd, r.path)))
+-      .slice(0, MAX_TRACKED_RESOURCES) as CriticalResource[];
++    resources = [
++      { path: "README.md",    label: "Project README",   type: "file", touched: false, staleSinceCompaction: false },
++      { path: "TODO.md",      label: "Task list",        type: "file", touched: false, staleSinceCompaction: false },
++      { path: "package.json", label: "Dependencies",     type: "file", touched: false, staleSinceCompaction: false },
++      { path: "src/main.ts",  label: "Entry point",      type: "file", touched: false, staleSinceCompaction: false },
++    ].filter((r) => r.type !== "file" || existsSync(join(cwd, r.path))) as CriticalResource[];
+ 
+     ulwLog("CONFIG", `cwd=${cwd} resources=[${resources.map((r) => r.path).join(", ") || "(none)"}]`);
+     ctx.ui.setStatus("ultrawork-config", `inline config loaded — ${resources.length} resources tracked`);
+@@ -225,23 +143,13 @@
+     const blob = JSON.stringify(args ?? {});
+     const usage = ctx.getContextUsage();
+     for (const r of resources) {
+-      if (resourceTouched(blob, r.path)) {
++      if (blob.includes(r.path)) {
+         r.touched = true;
+         r.staleSinceCompaction = false;
+         r.lastTouchedAtTokens = usage?.tokens;
+       }
+     }
+-    if (resourceTouched(blob, "TODO.md")) ensureTodoTracked(ctx);
+-  }
+-
+-  // B9: touch-tracking stays approximate by design (a reminder, not a ledger),
+-  // but require a path-like boundary before the match so "package.json" doesn't
+-  // get marked touched inside "my-package.json".
+-  function resourceTouched(blob: string, path: string): boolean {
+-    const idx = blob.indexOf(path);
+-    if (idx === -1) return false;
+-    const before = idx > 0 ? blob[idx - 1] : "";
+-    return !/[A-Za-z0-9_-]/.test(before);
++    if (blob.includes("TODO.md")) ensureTodoTracked(ctx);
+   }
+ 
+   // Tracks TODO.md even if it did not exist at session_start (agent created it).
+@@ -301,8 +209,38 @@
+         }\n\n` +
+         `Recent tool activity (most recent last):\n${digestBuffer.slice(-15).join("\n") || "(none)"}`;
+ 
+-      let bullets = await chatCompletion(system, user, { maxTokens: 220, timeoutMs: LIBRARIAN_TIMEOUT_MS });
+-      bullets = trimToBullets(bullets);
++      let bullets = "";
++      bullets = await enqueueLLM(async () => {
++        const controller = new AbortController();
++        const timeout = setTimeout(() => { controller.abort(); }, config.timeoutMs);
++        try {
++          const res = await fetch(`${config.routerBaseUrl}/v1/chat/completions`, {
++            method: "POST",
++            headers: { "Content-Type": "application/json" },
++            body: JSON.stringify({
++              model: config.librarianModel,
++              temperature: 0.2,
++              max_tokens: 220,
++              messages: [
++                { role: "system", content: system },
++                { role: "user", content: user },
++              ],
++            }),
++            signal: controller.signal,
++          });
++          const data = await res.json();
++          const msg = data?.choices?.[0]?.message;
++          let b = (msg?.content?.trim() || msg?.reasoning_content?.trim() || "").trim();
++          if (!msg?.content?.trim() && msg?.reasoning_content?.trim()) {
++            const raw = msg.reasoning_content;
++            const lastBullet = raw.split("\n").findLast((l) => l.trim().startsWith("-"));
++            b = lastBullet ? raw.slice(raw.indexOf(lastBullet)).trim() : raw.trim();
++          }
++          return b;
++        } finally {
++          clearTimeout(timeout);
++        }
++      });
+ 
+       ulwLog("LIB", `router response (${Date.now() - t0}ms): ${JSON.stringify(bullets).slice(0, 500)}`);
+ 
+@@ -320,11 +258,6 @@
+         { deliverAs: "steer", triggerTurn: true },
+       );
+ 
+-      // B10: the digest is "activity since the last nudge". Clear it now that
+-      // we've reminded the agent about these lines, so the next trigger shows
+-      // fresh activity instead of re-sending the same 15 tool calls.
+-      digestBuffer.length = 0;
+-
+       ctx.ui.setStatus("ultrawork-librarian", "nudge delivered");
+       ulwLog("LIB", `NUDGE delivered as steer (${Date.now() - t0}ms): ${bullets.replace(/\n/g, " | ").slice(0, 300)}`);
+       return bullets;
+@@ -336,41 +269,25 @@
+       return null;
+     } finally {
+       librarianRunning = false;
+-      lastLibrarianFinishedAt = Date.now();
+       ulwLog("LIB", `callLibrarian END total=${Date.now() - t0}ms`);
+     }
+   }
+ 
+   // ── Research Loop Integration ──────────────────────────────────
+ 
+-  async function runResearchLoop(ctx: any): Promise<string> {
++  async function runResearchLoop(ctx: any): Promise<void> {
+     const pendingClaims = getClaimsNeedingResearch(engine.state);
+     ulwLog("RESEARCH", `runResearchLoop START pending=${pendingClaims.length} ids=[${pendingClaims.map((c) => c.id).join(", ") || "none"}]`);
+     if (pendingClaims.length === 0) {
+       ctx.ui.setStatus("ultrawork-research", "no claims need research");
+-      return "No claims need research (each is already >= 0.5 confidence or has hit its round cap).";
++      return;
+     }
+ 
+-    ctx.ui.setStatus("ultrawork-research", `re-scoring ${pendingClaims.length} claim(s) from memory...`);
++    ctx.ui.setStatus("ultrawork-research", `researching ${pendingClaims.length} claim(s)...`);
+     await engine.runFullLoop(rawLLMCall);
+-    ctx.ui.setStatus("ultrawork-research", "re-score complete");
++    ctx.ui.setStatus("ultrawork-research", "research loop complete");
+     const after = Array.from(engine.state.claims.values()).map((c) => `${c.id}:${c.status}:${c.confidence.toFixed(2)}`).join(", ");
+     ulwLog("RESEARCH", `runResearchLoop END claims=[${after}]`);
+-
+-    // Priority-4: surface the recall as a NUDGE. Memory carries zero confidence
+-    // weight, so a claim only reaches "verified" once the agent opens its source
+-    // (playwright) and calls evidence_add with the real URL. Show each claim's
+-    // latest memory recall so the agent knows exactly what to go check.
+-    const lines = pendingClaims.map((c) => {
+-      const mem = c.evidence.filter((e) => e.origin === "memory");
+-      const recall = mem.length > 0 ? mem[mem.length - 1].excerpt.slice(0, 160) : "(nothing recalled from memory)";
+-      return `${c.id} [${c.status} conf=${c.confidence.toFixed(2)}] -> ${recall}`;
+-    });
+-    return [
+-      "Memory re-score complete (local model, no web access — a NUDGE, not live verification).",
+-      "Memory carries zero confidence weight, so these claims stay pending until you OPEN the source (playwright) and call evidence_add with the URL you actually opened:",
+-      ...lines,
+-    ].join("\n");
+   }
+ 
+   // ── Hooks ──────────────────────────────────────────────────────
+@@ -416,25 +333,10 @@
+       return;
+     }
+ 
+-    // context-prune coexistence: a prune flush replaces pruned tool results with
+-    // summaries, dropping the live token count sharply (e.g. 119k -> 45k).
+-    // lastLibrarianTokens is pinned at the pre-flush peak, so the delta
+-    // (tokens - lastLibrarianTokens) stays negative and the librarian can never
+-    // re-trigger until a compaction resets it to 0. When context drops by at
+-    // least reTriggerDelta, treat it as a fresh baseline so the librarian can
+-    // fire again on the next growth. (Normal growth is monotonic; a >=delta drop
+-    // is a prune flush or a resume, not noise.)
+-    if (lastLibrarianTokens > 0 && usage.tokens < lastLibrarianTokens - config.reTriggerDeltaTokens) {
+-      ulwLog("TOOL_END", `${event.toolName} context drop ${lastLibrarianTokens}->${usage.tokens} (prune flush / resume); resetting librarian baseline to ${usage.tokens}`);
+-      lastLibrarianTokens = usage.tokens;
+-    }
+-
+-    const cooldownOk = Date.now() - lastLibrarianFinishedAt >= LIBRARIAN_COOLDOWN_MS;
+     const triggerHit =
+       usage.tokens >= config.contextTriggerTokens &&
+-      usage.tokens - lastLibrarianTokens >= config.reTriggerDeltaTokens &&
+-      cooldownOk;
+-    ulwLog("TOOL_END", `${event.toolName} ok tokens=${usage.tokens} lastLibrarian=${lastLibrarianTokens} cooldown=${cooldownOk} autoTrigger=${triggerHit}`);
++      usage.tokens - lastLibrarianTokens >= config.reTriggerDeltaTokens;
++    ulwLog("TOOL_END", `${event.toolName} ok tokens=${usage.tokens} lastLibrarian=${lastLibrarianTokens} autoTrigger=${triggerHit}`);
+ 
+     if (triggerHit) {
+       void callLibrarian(ctx, `context at ~${usage.tokens} tokens`);
+@@ -453,7 +355,7 @@
+     // Stale flags are picked up by the next auto-trigger or /ulw-check.
+     ulwLog("COMPACT", `stale now=[${resources.filter((r) => r.staleSinceCompaction).map((r) => r.path).join(", ") || "none"}]`);
+ 
+-    schedule(() => {
++    setTimeout(() => {
+       pi.sendUserMessage(
+         "Context was compacted. Continue the SAME task. " +
+         "Do not assume completion. " +
+@@ -465,15 +367,6 @@
+     }, 3000);
+   });
+ 
+-  // Cancel any deferred follow-up messages and drop in-flight tool args so a
+-  // late setTimeout can't land a nudge into a brand-new session.
+-  pi.on("session_shutdown", () => {
+-    for (const t of pendingTimeouts) clearTimeout(t);
+-    pendingTimeouts.clear();
+-    pendingArgs.clear();
+-    ulwLog("SHUTDOWN", `session_shutdown — cleared ${pendingTimeouts.size} timer(s) and pendingArgs`);
+-  });
+-
+   // ── Agent-Callable Tools ───────────────────────────────────────
+ 
+   // reground_check — manual librarian trigger
+@@ -488,12 +381,8 @@
+     parameters: Type.Object({}),
+     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+       ulwLog("TOOL", "reground_check invoked by agent");
+-      const bullets = await callLibrarian(ctx, "agent-requested check");
+-      // B7: report what actually happened, not a fixed "dispatched".
+-      const text = bullets
+-        ? "Reground check complete — context nudge delivered."
+-        : "Reground check ran but delivered no nudge: either nothing needed flagging (no unopened/stale resources and no new activity) or another check was already in flight.";
+-      return { content: [{ type: "text", text }], details: { delivered: bullets != null } };
++      await callLibrarian(ctx, "agent-requested check");
++      return { content: [{ type: "text", text: "Reground check dispatched." }], details: {} };
+     },
+   });
+ 
+@@ -537,7 +426,6 @@
+     promptSnippet: "Add evidence to a previously registered claim",
+     promptGuidelines: [
+       "Call evidence_add after finding evidence from documentation (open it live in a browser with playwright), source code, or other sources.",
+-      "Include the url you actually opened — the source label is cross-checked against the URL, so a high-authority label on a community URL is downgraded automatically. This is the path that makes a claim verified.",
+     ],
+     parameters: Type.Object({
+       claim_id: Type.String({ description: "Claim ID (e.g. claim_1)" }),
+@@ -548,7 +436,7 @@
+     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+       ulwLog("TOOL", `evidence_add claim=${params.claim_id} source=${params.source}`);
+       const claim = engine.addEvidenceToClaim(params.claim_id, {
+-        source: params.source as EvidenceSource,
++        source: params.source,
+         url: params.url,
+         excerpt: params.excerpt,
+         timestamp: Date.now(),
+@@ -578,7 +466,7 @@
+       "Call evidence_check to see which claims need more research or are ready to be answered.",
+     ],
+     parameters: Type.Object({}),
+-    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
++    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+       const claims = Array.from(engine.state.claims.values());
+       ulwLog("TOOL", `evidence_check claims=${claims.length}`);
+       if (claims.length === 0) {
+@@ -596,11 +484,9 @@
+         `─────────────────────────────────────`,
+         ...lines,
+
+=== 4. DIFF: ultrawork.ts.bak -> ultrawork.ts (current) ===
+--- /c/Users/brutc/.pi/agent/extensions/ultrawork.ts.bak	2026-09-10 22:54:46.536618500 +0100
++++ /c/Users/brutc/.pi/agent/extensions/ultrawork.ts	2026-09-14 19:04:54.022492800 +0100
+@@ -1,6 +1,6 @@
+-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
++import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { Type } from "typebox";
+-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
++import { readFileSync, existsSync } from "fs";
+ import { join } from "path";
+ import { EpistemicProtocol } from "./ultrawork/epistemic_protocol";
+ import { createResearchLoop, type ResearchLoopEngine } from "./ultrawork/research_loop";
+@@ -8,6 +8,8 @@
+   classifyThreshold,
+   detectUnknownSignals,
+   getClaimsNeedingResearch,
++  canAnswer,
++  type EvidenceSource,
+ } from "./ultrawork/evidence_state";
+ import { ulwLog, ulwLogSessionStart, ULW_LOG_FILE } from "./ultrawork/logger";
+ 
+@@ -40,6 +42,19 @@
+   ulwLog("LOAD", `ultrawork extension loaded (log=${ULW_LOG_FILE})`);
+ 
+   const MAX_RETRIES = 4;
++  // The librarian uses a 27B model served by a LOCAL, SLOW llama.cpp that
++  // cold-loads into VRAM AND contends with the agent's own router calls on the
++  // same backend. A 60s cap made the first trigger after an idle almost always
++  // AbortError. Go generously (400s) so calls actually COMPLETE instead of
++  // aborting while the backend is still mid-generation — an aborted-but-still-
++  // processing request can leave the local router slot wedged and block the
++  // agent's own calls until the llama.cpp process is killed.
++  const LIBRARIAN_TIMEOUT_MS = 400_000;
++  // After a librarian call FINISHES (success OR timeout), don't start another for
++  // this long. Without it, a call that times out leaves lastLibrarianTokens
++  // un-advanced, so the 20k delta gate stays true and EVERY subsequent tool call
++  // re-fires the librarian — a continuous storm of timeouts (observed post-compact).
++  const LIBRARIAN_COOLDOWN_MS = 60_000;
+   let retries = 0;
+   let ultraworkActive = false;
+ 
+@@ -55,10 +70,18 @@
+ 
+   let resources: CriticalResource[] = [];
+   let lastLibrarianTokens = 0;
++  let lastLibrarianFinishedAt = 0;
+   let librarianRunning = false;
+   let digestBuffer: string[] = [];
+   const DIGEST_CAP = 40;
+   const pendingArgs = new Map<string, unknown>();
++  // Deferred follow-up messages (compact / loop-guard) are tracked so they can
++  // be cancelled at shutdown instead of firing into a brand-new session.
++  const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
++  function schedule(fn: () => void, ms: number) {
++    const t = setTimeout(() => { pendingTimeouts.delete(t); fn(); }, ms);
++    pendingTimeouts.add(t);
++  }
+ 
+   let engine: ResearchLoopEngine = createResearchLoop({
+     maxRounds: config.maxResearchRounds,
+@@ -79,26 +102,39 @@
+     return result;
+   }
+ 
+-  async function rawLLMCall(prompt: { system: string; user: string }): Promise<string> {
++  // B5: one shared router call for BOTH the regrounding nudge and the research
++  // recall. Each site previously had its own fetch with no error handling, so a
++  // non-2xx with an HTML body would reject research_loop while callLibrarian
++  // survived by luck. Now both go through here: checked status + safe JSON parse.
++  async function chatCompletion(system: string, user: string, opts: { maxTokens: number; temperature?: number; timeoutMs?: number }): Promise<string> {
+     return enqueueLLM(async () => {
+       const controller = new AbortController();
+-      const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
++      const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? config.timeoutMs);
+       try {
+         const res = await fetch(`${config.routerBaseUrl}/v1/chat/completions`, {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({
+             model: config.librarianModel,
+-            temperature: 0.2,
+-            max_tokens: 800,
++            temperature: opts.temperature ?? 0.2,
++            max_tokens: opts.maxTokens,
+             messages: [
+-              { role: "system", content: prompt.system },
+-              { role: "user", content: prompt.user },
++              { role: "system", content: system },
++              { role: "user", content: user },
+             ],
+           }),
+           signal: controller.signal,
+         });
+-        const data = await res.json();
++        let data: any;
++        try {
++          data = await res.json();
++        } catch {
++          throw new Error(`router returned a non-JSON body (HTTP ${res.status})`);
++        }
++        if (!res.ok) {
++          const detail = data?.error?.message || JSON.stringify(data).slice(0, 140) || `HTTP ${res.status}`;
++          throw new Error(`router HTTP ${res.status}: ${detail}`);
++        }
+         const msg = data?.choices?.[0]?.message;
+         return (msg?.content?.trim() || msg?.reasoning_content?.trim() || "");
+       } finally {
+@@ -107,20 +143,66 @@
+     });
+   }
+ 
++  // Research recall path. On error return "" (not throw) so a flaky router
++  // degrades to "no evidence recalled" → confidence 0 → pending_research
++  // instead of rejecting the whole research_loop tool.
++  async function rawLLMCall(prompt: { system: string; user: string }): Promise<string> {
++    try {
++      return await chatCompletion(prompt.system, prompt.user, { maxTokens: 800 });
++    } catch (e: any) {
++      ulwLog("LLM", `rawLLMCall (research recall) failed: ${String(e).slice(0, 140)}`);
++      return "";
++    }
++  }
++
+   function stripBom(text: string): string {
+     return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+   }
+ 
++  // If the model added any preamble, keep only from the first "- " bullet on.
++  function trimToBullets(text: string): string {
++    const t = text.trim();
++    const lines = t.split("\n");
++    const first = lines.findIndex((l) => l.trim().startsWith("-"));
++    if (first > 0) return lines.slice(first).join("\n").trim();
++    return t;
++  }
++
+   // ── Config Loading ─────────────────────────────────────────────
+ 
++  // B8: the "critical resources" list is language-agnostic. It is only a
++  // secondary hint — the tool-activity digest is the real signal. We probe a
++  // broad set of well-known filenames and keep the ones that exist, so a
++  // Python/Go/Rust project isn't left with just TODO.md to audit.
++  const RESOURCE_CANDIDATES: [string, string][] = [
++    ["README.md", "Project README"],
++    ["README.rst", "Project README"],
++    ["TODO.md", "Task list"],
++    ["package.json", "Dependencies (npm)"],
++    ["pyproject.toml", "Dependencies (Python)"],
++    ["requirements.txt", "Dependencies (pip)"],
++    ["Cargo.toml", "Dependencies (Rust)"],
++    ["go.mod", "Dependencies (Go)"],
++    ["pom.xml", "Dependencies (Maven)"],
++    ["build.gradle", "Dependencies (Gradle)"],
++    ["setup.py", "Setup (Python)"],
++    ["main.ts", "Entry point"],
++    ["src/main.ts", "Entry point"],
++    ["index.ts", "Entry point"],
++    ["src/index.ts", "Entry point"],
++    ["main.py", "Entry point"],
++    ["app.py", "Entry point"],
++    ["src/main.rs", "Entry point"],
++    ["cmd/main.go", "Entry point"],
++  ];
++  const MAX_TRACKED_RESOURCES = 10;
++
+   function loadProjectConfig(ctx: any) {
+     const cwd = ctx.cwd;
+-    resources = [
+-      { path: "README.md",    label: "Project README",   type: "file", touched: false, staleSinceCompaction: false },
+-      { path: "TODO.md",      label: "Task list",        type: "file", touched: false, staleSinceCompaction: false },
+-      { path: "package.json", label: "Dependencies",     type: "file", touched: false, staleSinceCompaction: false },
+-      { path: "src/main.ts",  label: "Entry point",      type: "file", touched: false, staleSinceCompaction: false },
+-    ].filter((r) => r.type !== "file" || existsSync(join(cwd, r.path))) as CriticalResource[];
++    resources = RESOURCE_CANDIDATES
++      .map(([path, label]) => ({ path, label, type: "file" as const, touched: false, staleSinceCompaction: false }))
++      .filter((r) => existsSync(join(cwd, r.path)))
++      .slice(0, MAX_TRACKED_RESOURCES) as CriticalResource[];
+ 
+     ulwLog("CONFIG", `cwd=${cwd} resources=[${resources.map((r) => r.path).join(", ") || "(none)"}]`);
+     ctx.ui.setStatus("ultrawork-config", `inline config loaded — ${resources.length} resources tracked`);
+@@ -143,13 +225,23 @@
+     const blob = JSON.stringify(args ?? {});
+     const usage = ctx.getContextUsage();
+     for (const r of resources) {
+-      if (blob.includes(r.path)) {
++      if (resourceTouched(blob, r.path)) {
+         r.touched = true;
+         r.staleSinceCompaction = false;
+         r.lastTouchedAtTokens = usage?.tokens;
+       }
+     }
+-    if (blob.includes("TODO.md")) ensureTodoTracked(ctx);
++    if (resourceTouched(blob, "TODO.md")) ensureTodoTracked(ctx);
++  }
++
++  // B9: touch-tracking stays approximate by design (a reminder, not a ledger),
++  // but require a path-like boundary before the match so "package.json" doesn't
++  // get marked touched inside "my-package.json".
++  function resourceTouched(blob: string, path: string): boolean {
++    const idx = blob.indexOf(path);
++    if (idx === -1) return false;
++    const before = idx > 0 ? blob[idx - 1] : "";
++    return !/[A-Za-z0-9_-]/.test(before);
+   }
+ 
+   // Tracks TODO.md even if it did not exist at session_start (agent created it).
+@@ -209,38 +301,8 @@
+         }\n\n` +
+         `Recent tool activity (most recent last):\n${digestBuffer.slice(-15).join("\n") || "(none)"}`;
+ 
+-      let bullets = "";
+-      bullets = await enqueueLLM(async () => {
+-        const controller = new AbortController();
+-        const timeout = setTimeout(() => { controller.abort(); }, config.timeoutMs);
+-        try {
+-          const res = await fetch(`${config.routerBaseUrl}/v1/chat/completions`, {
+-            method: "POST",
+-            headers: { "Content-Type": "application/json" },
+-            body: JSON.stringify({
+-              model: config.librarianModel,
+-              temperature: 0.2,
+-              max_tokens: 220,
+-              messages: [
+-                { role: "system", content: system },
+-                { role: "user", content: user },
+-              ],
+-            }),
+-            signal: controller.signal,
+-          });
+-          const data = await res.json();
+-          const msg = data?.choices?.[0]?.message;
+-          let b = (msg?.content?.trim() || msg?.reasoning_content?.trim() || "").trim();
+-          if (!msg?.content?.trim() && msg?.reasoning_content?.trim()) {
+-            const raw = msg.reasoning_content;
+-            const lastBullet = raw.split("\n").findLast((l) => l.trim().startsWith("-"));
+-            b = lastBullet ? raw.slice(raw.indexOf(lastBullet)).trim() : raw.trim();
+-          }
+-          return b;
+-        } finally {
+-          clearTimeout(timeout);
+-        }
+-      });
++      let bullets = await chatCompletion(system, user, { maxTokens: 220, timeoutMs: LIBRARIAN_TIMEOUT_MS });
++      bullets = trimToBullets(bullets);
+ 
+       ulwLog("LIB", `router response (${Date.now() - t0}ms): ${JSON.stringify(bullets).slice(0, 500)}`);
+ 
+@@ -258,6 +320,11 @@
+         { deliverAs: "steer", triggerTurn: true },
+       );
+ 
++      // B10: the digest is "activity since the last nudge". Clear it now that
++      // we've reminded the agent about these lines, so the next trigger shows
++      // fresh activity instead of re-sending the same 15 tool calls.
++      digestBuffer.length = 0;
++
+       ctx.ui.setStatus("ultrawork-librarian", "nudge delivered");
+       ulwLog("LIB", `NUDGE delivered as steer (${Date.now() - t0}ms): ${bullets.replace(/\n/g, " | ").slice(0, 300)}`);
+       return bullets;
+@@ -269,25 +336,41 @@
+       return null;
+     } finally {
+       librarianRunning = false;
++      lastLibrarianFinishedAt = Date.now();
+       ulwLog("LIB", `callLibrarian END total=${Date.now() - t0}ms`);
+     }
+   }
+ 
+   // ── Research Loop Integration ──────────────────────────────────
+ 
+-  async function runResearchLoop(ctx: any): Promise<void> {
++  async function runResearchLoop(ctx: any): Promise<string> {
+     const pendingClaims = getClaimsNeedingResearch(engine.state);
+     ulwLog("RESEARCH", `runResearchLoop START pending=${pendingClaims.length} ids=[${pendingClaims.map((c) => c.id).join(", ") || "none"}]`);
+     if (pendingClaims.length === 0) {
+       ctx.ui.setStatus("ultrawork-research", "no claims need research");
+-      return;
++      return "No claims need research (each is already >= 0.5 confidence or has hit its round cap).";
+     }
+ 
+-    ctx.ui.setStatus("ultrawork-research", `researching ${pendingClaims.length} claim(s)...`);
++    ctx.ui.setStatus("ultrawork-research", `re-scoring ${pendingClaims.length} claim(s) from memory...`);
+     await engine.runFullLoop(rawLLMCall);
+-    ctx.ui.setStatus("ultrawork-research", "research loop complete");
++    ctx.ui.setStatus("ultrawork-research", "re-score complete");
+     const after = Array.from(engine.state.claims.values()).map((c) => `${c.id}:${c.status}:${c.confidence.toFixed(2)}`).join(", ");
+     ulwLog("RESEARCH", `runResearchLoop END claims=[${after}]`);
++
++    // Priority-4: surface the recall as a NUDGE. Memory carries zero confidence
++    // weight, so a claim only reaches "verified" once the agent opens its source
++    // (playwright) and calls evidence_add with the real URL. Show each claim's
++    // latest memory recall so the agent knows exactly what to go check.
++    const lines = pendingClaims.map((c) => {
++      const mem = c.evidence.filter((e) => e.origin === "memory");
++      const recall = mem.length > 0 ? mem[mem.length - 1].excerpt.slice(0, 160) : "(nothing recalled from memory)";
++      return `${c.id} [${c.status} conf=${c.confidence.toFixed(2)}] -> ${recall}`;
++    });
++    return [
++      "Memory re-score complete (local model, no web access — a NUDGE, not live verification).",
++      "Memory carries zero confidence weight, so these claims stay pending until you OPEN the source (playwright) and call evidence_add with the URL you actually opened:",
++      ...lines,
++    ].join("\n");
+   }
+ 
+   // ── Hooks ──────────────────────────────────────────────────────
+@@ -333,10 +416,25 @@
+       return;
+     }
+ 
++    // context-prune coexistence: a prune flush replaces pruned tool results with
++    // summaries, dropping the live token count sharply (e.g. 119k -> 45k).
++    // lastLibrarianTokens is pinned at the pre-flush peak, so the delta
++    // (tokens - lastLibrarianTokens) stays negative and the librarian can never
++    // re-trigger until a compaction resets it to 0. When context drops by at
++    // least reTriggerDelta, treat it as a fresh baseline so the librarian can
++    // fire again on the next growth. (Normal growth is monotonic; a >=delta drop
++    // is a prune flush or a resume, not noise.)
++    if (lastLibrarianTokens > 0 && usage.tokens < lastLibrarianTokens - config.reTriggerDeltaTokens) {
++      ulwLog("TOOL_END", `${event.toolName} context drop ${lastLibrarianTokens}->${usage.tokens} (prune flush / resume); resetting librarian baseline to ${usage.tokens}`);
++      lastLibrarianTokens = usage.tokens;
++    }
++
++    const cooldownOk = Date.now() - lastLibrarianFinishedAt >= LIBRARIAN_COOLDOWN_MS;
+     const triggerHit =
+       usage.tokens >= config.contextTriggerTokens &&
+-      usage.tokens - lastLibrarianTokens >= config.reTriggerDeltaTokens;
+-    ulwLog("TOOL_END", `${event.toolName} ok tokens=${usage.tokens} lastLibrarian=${lastLibrarianTokens} autoTrigger=${triggerHit}`);
++      usage.tokens - lastLibrarianTokens >= config.reTriggerDeltaTokens &&
++      cooldownOk;
++    ulwLog("TOOL_END", `${event.toolName} ok tokens=${usage.tokens} lastLibrarian=${lastLibrarianTokens} cooldown=${cooldownOk} autoTrigger=${triggerHit}`);
+ 
+     if (triggerHit) {
+       void callLibrarian(ctx, `context at ~${usage.tokens} tokens`);
+@@ -355,7 +453,7 @@
+     // Stale flags are picked up by the next auto-trigger or /ulw-check.
+     ulwLog("COMPACT", `stale now=[${resources.filter((r) => r.staleSinceCompaction).map((r) => r.path).join(", ") || "none"}]`);
+ 
+-    setTimeout(() => {
++    schedule(() => {
+       pi.sendUserMessage(
+         "Context was compacted. Continue the SAME task. " +
+         "Do not assume completion. " +
+@@ -367,6 +465,15 @@
+     }, 3000);
+   });
+ 
++  // Cancel any deferred follow-up messages and drop in-flight tool args so a
++  // late setTimeout can't land a nudge into a brand-new session.
++  pi.on("session_shutdown", () => {
++    for (const t of pendingTimeouts) clearTimeout(t);
++    pendingTimeouts.clear();
++    pendingArgs.clear();
++    ulwLog("SHUTDOWN", `session_shutdown — cleared ${pendingTimeouts.size} timer(s) and pendingArgs`);
++  });
++
+   // ── Agent-Callable Tools ───────────────────────────────────────
+ 
+   // reground_check — manual librarian trigger
+@@ -381,8 +488,12 @@
+     parameters: Type.Object({}),
+     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+       ulwLog("TOOL", "reground_check invoked by agent");
+-      await callLibrarian(ctx, "agent-requested check");
+-      return { content: [{ type: "text", text: "Reground check dispatched." }], details: {} };
++      const bullets = await callLibrarian(ctx, "agent-requested check");
++      // B7: report what actually happened, not a fixed "dispatched".
++      const text = bullets
++        ? "Reground check complete — context nudge delivered."
++        : "Reground check ran but delivered no nudge: either nothing needed flagging (no unopened/stale resources and no new activity) or another check was already in flight.";
++      return { content: [{ type: "text", text }], details: { delivered: bullets != null } };
+     },
+   });
+ 
+@@ -426,6 +537,7 @@
+     promptSnippet: "Add evidence to a previously registered claim",
+     promptGuidelines: [
+       "Call evidence_add after finding evidence from documentation (open it live in a browser with playwright), source code, or other sources.",
++      "Include the url you actually opened — the source label is cross-checked against the URL, so a high-authority label on a community URL is downgraded automatically. This is the path that makes a claim verified.",
+     ],
+     parameters: Type.Object({
+       claim_id: Type.String({ description: "Claim ID (e.g. claim_1)" }),
+@@ -436,7 +548,7 @@
+     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+       ulwLog("TOOL", `evidence_add claim=${params.claim_id} source=${params.source}`);
+       const claim = engine.addEvidenceToClaim(params.claim_id, {
+-        source: params.source,
++        source: params.source as EvidenceSource,
+         url: params.url,
+         excerpt: params.excerpt,
+         timestamp: Date.now(),
+@@ -466,7 +578,7 @@
+       "Call evidence_check to see which claims need more research or are ready to be answered.",
+     ],
+     parameters: Type.Object({}),
+-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
++    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+       const claims = Array.from(engine.state.claims.values());
+       ulwLog("TOOL", `evidence_check claims=${claims.length}`);
+       if (claims.length === 0) {
+@@ -484,9 +596,11 @@
+         `─────────────────────────────────────`,
+         ...lines,
+         ``,
+-        `Claims needing research: ${getClaimsNeedingResearch(engine.state).length}`,
++        `Ready to answer (verified, conf >= ${config.minConfidenceForAnswer}): ${claims.filter((c) => canAnswer(c, config.minConfidenceForAnswer)).length}`,
+         `Verified: ${claims.filter((c) => c.status === "verified").length}`,
++        `Conflicted: ${claims.filter((c) => c.status === "conflicted").length}`,
+         `Unverified: ${claims.filter((c) => c.status === "unverified").length}`,
++        `Claims needing research: ${getClaimsNeedingResearch(engine.state).length}`,
+       ].join("\n");
+ 
+       return { content: [{ type: "text", text: summary }], details: {} };
+@@ -497,15 +611,16 @@
+   pi.registerTool({
+     name: "research_loop",
+     label: "Research Loop",
+-    description: "Re-score registered claims with the local model (no web access). For live research, open sources in a browser (playwright) yourself and register findings via evidence_add.",
+-    promptSnippet: "Trigger automatic research for claims needing evidence",
++    description: "Re-score registered claims from the local model's MEMORY (no web access) — a nudge, not live verification. Memory evidence carries zero confidence weight, so a claim only reaches 'verified' after you open its source in a browser (playwright) and call evidence_add with the real URL.",
++    promptSnippet: "Re-score claims from model memory (a nudge, not verification); open sources live to truly verify",
+     promptGuidelines: [
+-      "Call research_loop when you want the system to automatically research claims that have low confidence.",
++      "Call research_loop to see what the local model recalls about low-confidence claims (it tells you what to go verify).",
++      "It is NOT verification. To verify a claim, open the source in a browser (playwright) and call evidence_add with the URL you actually opened.",
+     ],
+     parameters: Type.Object({}),
+     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+-      await runResearchLoop(ctx);
+-      return { content: [{ type: "text", text: "Research loop complete. Run evidence_check to see results." }], details: {} };
++      const summary = await runResearchLoop(ctx);
++      return { content: [{ type: "text", text: summary }], details: {} };
+     },
+   });
+ 
+@@ -534,7 +649,7 @@
+       retries++;
+       ulwLog("AGENT_END", `LOOP GUARD TRIPPED — sending resume message (retry ${retries}/${MAX_RETRIES})`);
+       ctx.ui.notify(`Ultrawork: incomplete TODOs detected (retry ${retries}/${MAX_RETRIES})`, "info");
+-      setTimeout(() => {
++      schedule(() => {
+         pi.sendUserMessage(
+           "You stopped but TODO.md still has unchecked items. " +
+           "Resume. Use tools. Do NOT summarize progress — act on the next item.\n" +
+@@ -606,9 +721,11 @@
+         `Ultrawork Evidence State`,
+         `────────────────────────`,
+         `Total claims: ${claims.length}`,
++        `Ready to answer (verified, conf >= ${config.minConfidenceForAnswer}): ${claims.filter((c) => canAnswer(c, config.minConfidenceForAnswer)).length}`,
+         `Verified: ${claims.filter((c) => c.status === "verified").length}`,
+-        `Unverified: ${claims.filter((c) => c.status === "unverified").length}`,
++        `Conflicted: ${claims.filter((c) => c.status === "conflicted").length}`,
+         `Pending research: ${claims.filter((c) => c.status === "pending_research").length}`,
++        `Unverified: ${claims.filter((c) => c.status === "unverified").length}`,
+         `Claims needing research: ${getClaimsNeedingResearch(engine.state).length}`,
+       ].join("\n");
+       ulwLog("CMD", `/ulw-evidence — claims=${claims.length} verified=${claims.filter((c) => c.status === "verified").length} unverified=${claims.filter((c) => c.status === "unverified").length}`);
+
+=== 5. MODULE DIFFS: ultrawork.bak -> ultrawork ===
+----- epistemic_protocol.ts -----
+--- /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/epistemic_protocol.ts	2026-09-10 22:54:46.558047300 +0100
++++ /c/Users/brutc/.pi/agent/extensions/ultrawork/epistemic_protocol.ts	2026-09-10 23:04:17.560446000 +0100
+@@ -1,22 +1,23 @@
+ // ── Epistemic Protocol ─────────────────────────────────────────────
+-// Enforces evidence-based claims at the architecture level, not just
+-// as a personality instruction in the system prompt.
++// Enforces evidence-based claims at the architecture level, not just as a
++// personality instruction in the system prompt.
+ //
+-// "Evidence required" is a property of claims, not a personality trait.
++//   "Evidence required" is a property of claims, not a personality trait.
++//
++// Only buildSystemPromptSection() is consumed today (injected on
++// before_agent_start). The rest of this module is small, self-contained
++// building blocks for the claim-classification / firewall vocabulary — they
++// are pure utilities with no hidden state, and the (previously) stateful
++// EpistemicProtocol engine that wrapped a second ResearchLoopEngine has been
++// removed: it was a duplicate of research_loop with no callers.
+ 
+-import type { Claim, EvidenceEntry, ResearchThreshold } from "./evidence_state";
++import type { Claim } from "./evidence_state";
+ import {
+   classifyThreshold,
+   requiresResearch,
+   requiresEvidence,
+   detectUnknownSignals,
+-  shouldResearchAgain,
+-  canAnswer,
+-  SOURCE_AUTHORITY,
+-  type ClaimStatus,
+ } from "./evidence_state";
+-import type { ResearchLoopEngine } from "./research_loop";
+-import { createResearchLoop } from "./research_loop";
+ 
+ // ── Claim Classification ───────────────────────────────────────────
+ 
+@@ -35,8 +36,6 @@
+   const level = threshold as ClaimLevel;
+ 
+   let reason = "";
+-  const lower = text.toLowerCase();
+-
+   if (threshold === 3) {
+     reason = "Explicitly requested research or verification";
+   } else if (threshold === 4) {
+@@ -58,25 +57,24 @@
+   };
+ }
+ 
+-// ── Epistemic Firewall ─────────────────────────────────────────────
+-// Separates planning from answering.
+-//
+-// Pipeline:
+-//   USER → Qwen: understand question
+-//        → Qwen: create research plan
+-//        → TOOLS: gather evidence
+-//        → Qwen: evaluate evidence
+-//        → TOOLS: gather more evidence if necessary
+-//        → Qwen: construct answer exclusively from evidence
+-
+-export interface EpistemicResult {
+-  answer: string;
+-  evidence: string;
+-  constraints: string;
+-  confidence: number;
+-  verified: boolean;
++export function getLevelDescription(level: ClaimLevel): string {
++  const descriptions: Record<ClaimLevel, string> = {
++    0: "Internal reasoning — no research required",
++    1: "Stable knowledge — usually no research required",
++    2: "Potentially changing — research required",
++    3: "Explicitly requested research — research absolutely required",
++    4: "High uncertainty — research required",
++  };
++  return descriptions[level];
+ }
+ 
++// ── Epistemic Firewall (prompt building blocks) ────────────────────
++// The firewall idea: the final generation should get the question + VERIFIED
++// EVIDENCE + RESEARCH CONSTRAINTS, not just the question fed to raw weights.
++// These helpers render that structure; wiring them into a separate answering
++// pass is the intended next step (currently the prompt section below carries
++// the same policy inline).
++
+ export function buildEpistemicFirewall(
+   question: string,
+   verifiedEvidence: string,
+@@ -97,8 +95,6 @@
+   ].join("\n\n");
+ }
+ 
+-// ── Research Constraints Generator ─────────────────────────────────
+-
+ export function buildResearchConstraints(
+   claim: Claim,
+   signals: ReturnType<typeof detectUnknownSignals>
+@@ -129,73 +125,10 @@
+   return lines.join("\n");
+ }
+ 
+-// ── Epistemic Protocol Handler ─────────────────────────────────────
+-// The main entry point. Processes a question through the full pipeline.
+-
+-export interface EpistemicConfig {
+-  maxResearchRounds: number;
+-  minConfidenceForAnswer: number;
+-  routerBaseUrl: string;
+-  librarianModel: string;
+-}
++// ── System Prompt Section ──────────────────────────────────────────
++// The one piece actually consumed by ultrawork.ts.
+ 
+ export class EpistemicProtocol {
+-  private config: EpistemicConfig;
+-  private researchEngine: ResearchLoopEngine;
+-
+-  constructor(config: EpistemicConfig) {
+-    this.config = config;
+-    this.researchEngine = createResearchLoop({
+-      maxRounds: config.maxResearchRounds,
+-      minConfidenceForAnswer: config.minConfidenceForAnswer,
+-      routerBaseUrl: config.routerBaseUrl,
+-      model: config.librarianModel,
+-      timeoutMs: 60_000,
+-    });
+-  }
+-
+-  // ── Public API ─────────────────────────────────────────────────
+-
+-  registerClaim(statement: string): Claim {
+-    const classified = classifyClaim(statement);
+-    return this.researchEngine.registerClaim(statement, {
+-      status: classified.requiresResearch ? "pending_research" : "unverified",
+-    });
+-  }
+-
+-  addEvidence(claimId: string, entry: Omit<EvidenceEntry, "authority">): Claim | null {
+-    return this.researchEngine.addEvidenceToClaim(claimId, entry);
+-  }
+-
+-  async processClaim(claimId: string, librarianCall: (prompt: { system: string; user: string }) => Promise<string>): Promise<Claim> {
+-    const claim = this.researchEngine.state.claims.get(claimId);
+-    if (!claim) throw new Error(`Claim ${claimId} not found`);
+-
+-    const signals = detectUnknownSignals(claim);
+-
+-    // If evidence is insufficient, run research loop
+-    if (shouldResearchAgain(claim)) {
+-      await this.researchEngine.researchClaim(claimId, librarianCall);
+-    }
+-
+-    return claim;
+-  }
+-
+-  canAnswer(claimId: string): boolean {
+-    return this.researchEngine.canAnswerClaim(claimId);
+-  }
+-
+-  getEvidence(claimId: string): string {
+-    return this.researchEngine.getVerifiedEvidenceForClaim(claimId);
+-  }
+-
+-  getSummary(): string {
+-    return this.researchEngine.getResearchSummary();
+-  }
+-
+-  // ── System Prompt Injection ────────────────────────────────────
+-  // Generates the epistemic protocol section for the system prompt
+-
+   static buildSystemPromptSection(): string {
+     return [
+       `## EPISTEMIC PROTOCOL`,
+@@ -243,18 +176,4 @@
+       `explicitly state that the information could not be verified.`,
+     ].join("\n");
+   }
+-
+-  // ── Claim Level Reference ──────────────────────────────────────
+-  // For the orchestrator to make decisions before Qwen generates the final answer
+-
+-  static getLevelDescription(level: ClaimLevel): string {
+-    const descriptions: Record<ClaimLevel, string> = {
+-      0: "Internal reasoning — no research required",
+-      1: "Stable knowledge — usually no research required",
+-      2: "Potentially changing — research required",
+-      3: "Explicitly requested research — research absolutely required",
+-      4: "High uncertainty — research required",
+-    };
+-    return descriptions[level];
+-  }
+ }
+
+----- evidence_state.ts -----
+--- /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/evidence_state.ts	2026-09-10 22:54:46.559037900 +0100
++++ /c/Users/brutc/.pi/agent/extensions/ultrawork/evidence_state.ts	2026-09-10 23:43:30.011871300 +0100
+@@ -28,6 +28,13 @@
+   excerpt: string;
+   authority: number;
+   timestamp: number;
++  /** Where this evidence came from. "memory" = recalled by the local model with
++   *  no tools → carries ZERO confidence weight (a nudge, not proof).
++   *  "external" (default) = the agent opened a real source. */
++  origin?: "external" | "memory";
++  /** Self-reported source label, kept for display when addEvidence's URL
++   *  reconciliation downgraded it (reported something the URL doesn't back). */
++  reportedSource?: EvidenceSource;
+ }
+ 
+ export interface Claim {
+@@ -47,15 +54,25 @@
+   claims: Map<string, Claim>;
+   nextId: number;
+   maxResearchRounds: number;
++  /** Load-bearing answer gate: a claim only becomes "verified" (and is
++   *  answerable) once it reaches this confidence WITH strong/corroborated
++   *  evidence. This is what the config's minConfidenceForAnswer actually drives. */
++  minConfidenceForAnswer: number;
+ }
+ 
++// Confidence floor below which a claim is always queued for (re)research
++// regardless of status. Deliberately distinct from minConfidenceForAnswer:
++// this one means "keep trying", the other means "good enough to answer".
++export const RESEARCH_BELOW = 0.5;
++
+ // ── Factory ────────────────────────────────────────────────────────
+ 
+-export function createEvidenceState(maxResearchRounds: number = 3): EvidenceState {
++export function createEvidenceState(maxResearchRounds: number = 3, minConfidenceForAnswer: number = 0.7): EvidenceState {
+   return {
+     claims: new Map(),
+     nextId: 1,
+     maxResearchRounds,
++    minConfidenceForAnswer,
+   };
+ }
+ 
+@@ -71,7 +88,7 @@
+ }): Claim {
+   const id = `claim_${state.nextId++}`;
+   const threshold = options?.threshold ?? classifyThreshold(statement);
+-  let status: ClaimStatus = options?.status;
++  let status: ClaimStatus | undefined = options?.status;
+   if (status === undefined) {
+     if (threshold >= 2) status = "pending_research";
+     else status = "unverified";
+@@ -92,76 +109,103 @@
+   return claim;
+ }
+ 
+-export function updateClaim(state: EvidenceState, claimId: string, updates: Partial<Claim>): Claim | null {
+-  const claim = state.claims.get(claimId);
+-  if (!claim) return null;
+-  Object.assign(claim, updates, { last_verified: Date.now() });
+-  return claim;
+-}
+-
+ export function addEvidence(state: EvidenceState, claimId: string, evidence: Omit<EvidenceEntry, "authority">): Claim | null {
+   const claim = state.claims.get(claimId);
+   if (!claim) return null;
+-  const authority = SOURCE_AUTHORITY[evidence.source] ?? 0.2;
+-  claim.evidence.push({ ...evidence, authority });
++
++  const isMemory = evidence.origin === "memory";
++  let source: EvidenceSource = evidence.source;
++  let reportedSource: EvidenceSource | undefined;
++
++  // B4: when a URL is present, the effective source is the LESSER of the
++  // self-reported label and what the URL domain actually indicates. A
++  // reddit.com URL can no longer masquerade as official_docs (authority 1.0),
++  // which is what made the self-assigned label the load-bearing (and circular)
++  // signal. Memory evidence is never reconciled from its (recalled) URL — a
++  // remembered pointer is not proof of what the page says.
++  if (!isMemory && evidence.url) {
++    const classified = classifySource(evidence.url);
++    if (SOURCE_AUTHORITY[classified] < SOURCE_AUTHORITY[evidence.source]) {
++      source = classified;
++      reportedSource = evidence.source;
++    }
++  }
++
++  const authority = isMemory ? 0.0 : (SOURCE_AUTHORITY[source] ?? 0.2);
++  claim.evidence.push({ ...evidence, source, reportedSource, authority });
+   if (evidence.url && !claim.source_urls.includes(evidence.url)) {
+     claim.source_urls.push(evidence.url);
+   }
+   claim.last_verified = Date.now();
+-  // Recalculate confidence based on evidence
++  // Recalculate confidence and status via the single shared implementation.
+   claim.confidence = recalculateConfidence(claim);
+-  // Update status
+-  claim.status = determineStatus(claim);
++  claim.status = resolveStatus(state, claim);
+   return claim;
+ }
+ 
+-export function getUnverifiedClaims(state: EvidenceState): Claim[] {
+-  return Array.from(state.claims.values()).filter(
+-    (c) => c.status === "unverified" || c.status === "pending_research"
+-  );
+-}
+-
+-export function getConflictedClaims(state: EvidenceState): Claim[] {
+-  return Array.from(state.claims.values()).filter((c) => c.status === "conflicted");
+-}
+-
+-export function getClaimsByConfidence(state: EvidenceState, minConfidence: number): Claim[] {
+-  return Array.from(state.claims.values()).filter((c) => c.confidence >= minConfidence);
+-}
+-
+ export function getClaimsNeedingResearch(state: EvidenceState): Claim[] {
+   return Array.from(state.claims.values()).filter(
+-    (c) => c.research_rounds < state.maxResearchRounds && c.confidence < 0.5
++    (c) => c.research_rounds < state.maxResearchRounds && c.confidence < RESEARCH_BELOW
+   );
+ }
+ 
+ // ── Confidence & Status Logic ──────────────────────────────────────
+ 
+-function recalculateConfidence(claim: Claim): number {
+-  if (claim.evidence.length === 0) return 0.0;
+-
+-  // Weighted average of evidence authority
++// Single shared confidence implementation. research_loop no longer keeps its
++// own copy, so evidence_add and research can't diverge on the same claim (B2).
++// Squares authority for a stronger high-authority signal, and guards the
++// all-zero case (memory-only evidence) so it returns 0 instead of NaN.
++export function recalculateConfidence(claim: Claim): number {
+   let totalWeight = 0;
+   let weightedSum = 0;
+   for (const e of claim.evidence) {
+     totalWeight += e.authority;
+-    weightedSum += e.authority * e.authority; // Square for stronger signal
++    weightedSum += e.authority * e.authority;
+   }
++  if (totalWeight === 0) return 0.0;
+   return Math.min(1.0, weightedSum / totalWeight);
+ }
+ 
+-function determineStatus(claim: Claim): ClaimStatus {
++// Sources that count as "strong" on their own for verification.
++const STRONG_SOURCES: ReadonlySet<EvidenceSource> = new Set([
++  "official_docs", "official_repo", "specification",
++]);
++
++// B3: conflict is OPPOSING CONTENT, not source-type diversity. Three different
++// source types usually corroborate; a real conflict is one source affirming
++// while another denies. Heuristic on excerpt text (good enough for a nudge).
++const NEG_RE = /\b(does not|do not|doesn't|don't|no such|not supported|not available|not present|not included|removed|deprecated|no longer|replaced|contradicts|in contrast)\b/i;
++const AFF_RE = /\b(supports?|available|present|included|shipped|provided|confirmed|official)\b/i;
++
++function hasOpposingEvidence(entries: EvidenceEntry[]): boolean {
++  const negSrc = new Set(entries.filter((e) => NEG_RE.test(e.excerpt)).map((e) => e.source));
++  const affSrc = new Set(entries.filter((e) => AFF_RE.test(e.excerpt)).map((e) => e.source));
++  if (negSrc.size === 0 || affSrc.size === 0) return false;
++  // A genuine conflict needs at least two distinct source types involved.
++  return new Set([...negSrc, ...affSrc]).size > 1;
++}
++
++// Single shared status resolver. Memory evidence never counts toward
++// "strong"/"corroborated" — a claim can only be verified by evidence the agent
++// actually opened. The "verified" gate uses the state's
++// minConfidenceForAnswer (B1: the config knob is now load-bearing).
++export function resolveStatus(state: EvidenceState, claim: Claim): ClaimStatus {
+   if (claim.evidence.length === 0) return "unverified";
+-
+-  const sources = claim.evidence.map((e) => e.source);
+-  const hasOfficial = sources.includes("official_docs") || sources.includes("official_repo");
+-  const hasConflicting = new Set(sources).size > 2; // Multiple different source types
+-
+-  if (hasOfficial && claim.confidence >= 0.7) return "verified";
+-  if (hasConflicting && claim.confidence < 0.5) return "conflicted";
+-  if (claim.confidence < 0.3) return "pending_research";
+-  if (claim.confidence >= 0.5) return "verified";
+-  return "pending_research";
++  const conf = claim.confidence;
++  const ext = claim.evidence.filter((e) => e.origin !== "memory");
++  const hasStrong = ext.some((e) => STRONG_SOURCES.has(e.source));
++  const corroborated = new Set(ext.map((e) => e.source)).size >= 2;
++
++  // A detected CONTENT conflict is a conflict regardless of aggregate
++  // confidence. The authority-weighted conf is precisely what would mask a
++  // live dispute (official docs say "yes", another source says "no"), so a
++  // high conf here is a reason to go resolve which authority is right, not to
++  // declare it settled. (Opposing detection already requires two distinct
++  // source types, which is the precision bar.)
++  if (hasOpposingEvidence(claim.evidence)) return "conflicted";
++  if (conf < 0.3) return "pending_research";
++  if ((hasStrong || corroborated) && conf >= state.minConfidenceForAnswer) return "verified";
++  return "unverified";
+ }
+ 
+ // ── Source Classification ──────────────────────────────────────────
+@@ -177,31 +221,6 @@
+
+----- logger.ts -----
+
+----- research_loop.ts -----
+--- /c/Users/brutc/.pi/agent/extensions/ultrawork.bak/research_loop.ts	2026-09-10 22:54:46.557034600 +0100
++++ /c/Users/brutc/.pi/agent/extensions/ultrawork/research_loop.ts	2026-09-10 23:02:46.737523500 +0100
+@@ -1,59 +1,29 @@
+-// ── Research Loop Architecture ─────────────────────────────────────
+-// Implements the roadmap's research loop:
+-//   Qwen → "Do I have sufficient evidence?" → YES/NO → formulate answer / research again
++// ── Research Loop (memory re-score) ────────────────────────────────
++// The loop asks the local model (no tools) to RECALL evidence for claims and
++// re-scores them. That recall is tagged origin:"memory" and weighs 0 in
++// confidence, so the loop is a NUDGE — it tells the agent what to go verify,
++// it does not verify it. Verification only happens when the agent opens a real
++// source (playwright) and calls evidence_add with a URL; that external evidence
++// is what can push a claim to "verified".
+ //
+-// Three memory layers:
+-//   1. Qwen weights (intuition)
+-//   2. Research cache (verified evidence)
+-//   3. Persistent docs (memory)
+-//
+-// Browser is perception. Evidence layer is epistemic control.
++// Confidence/status math lives in evidence_state.ts (single source of truth),
++// so evidence_add and this loop can't diverge on the same claim.
+ 
+-import type { EvidenceState, Claim, EvidenceEntry, ResearchThreshold, ClaimStatus, EvidenceSource } from "./evidence_state";
++import type { EvidenceState, Claim, EvidenceEntry, EvidenceSource } from "./evidence_state";
+ import {
+   createEvidenceState,
+   addClaim,
+   addEvidence,
+   classifyThreshold,
+   requiresResearch,
+-  requiresEvidence,
+-  shouldResearchAgain,
+-  canAnswer,
+-  classifySource,
+-  SOURCE_AUTHORITY,
+   getClaimsNeedingResearch,
++  recalculateConfidence,
++  resolveStatus,
++  RESEARCH_BELOW,
++  SOURCE_AUTHORITY,
+ } from "./evidence_state";
+ 
+-// ── Research Result ────────────────────────────────────────────────
+-
+-export interface ResearchResult {
+-  question: string;
+-  sources: ResearchSource[];
+-  assessment: string;
+-  evidence: EvidenceEntry[];
+-  sufficient: boolean;
+-}
+-
+-export interface ResearchSource {
+-  label: string;
+-  type: EvidenceSource;
+-  url: string;
+-  authority: number;
+-  passage: string;
+-}
+-
+-// ── Research Plan ──────────────────────────────────────────────────
+-
+-export interface ResearchPlan {
+-  claimId: string;
+-  question: string;
+-  threshold: ResearchThreshold;
+-  sourcesToCheck: string[];
+-  maxRounds: number;
+-  currentRound: number;
+-}
+-
+-// ── Research Loop Engine ───────────────────────────────────────────
++// ── Config ─────────────────────────────────────────────────────────
+ 
+ export interface ResearchLoopConfig {
+   maxRounds: number;
+@@ -70,12 +40,10 @@
+ export class ResearchLoopEngine {
+   private _state: EvidenceState;
+   private config: ResearchLoopConfig;
+-  private researchHistory: ResearchPlan[];
+ 
+   constructor(config: ResearchLoopConfig) {
+     this.config = config;
+-    this._state = createEvidenceState(config.maxRounds);
+-    this.researchHistory = [];
++    this._state = createEvidenceState(config.maxRounds, config.minConfidenceForAnswer);
+   }
+ 
+   get state(): EvidenceState {
+@@ -86,162 +54,86 @@
+ 
+   registerClaim(statement: string, options?: {
+     confidence?: number;
+-    status?: ClaimStatus;
++    status?: Claim["status"];
+     missing_info?: string[];
+   }): Claim {
+     const threshold = classifyThreshold(statement);
+-    const claim = addClaim(this._state, statement, {
++    return addClaim(this._state, statement, {
+       ...options,
+       status: options?.status ?? (requiresResearch(threshold) ? "pending_research" : "unverified"),
+     });
+-
+-    if (requiresResearch(threshold) || requiresEvidence(threshold)) {
+-      this.researchHistory.push({
+-        claimId: claim.id,
+-        question: statement,
+-        threshold,
+-        sourcesToCheck: [],
+-        maxRounds: this.config.maxRounds,
+-        currentRound: 0,
+-      });
+-    }
+-
+-    return claim;
+   }
+ 
+   // ── Evidence Addition ──────────────────────────────────────────
++  // addEvidence recomputes authority (and reconciles the source label against
++  // the URL), so there is nothing to set here.
+ 
+   addEvidenceToClaim(claimId: string, entry: Omit<EvidenceEntry, "authority">): Claim | null {
+-    const authority = SOURCE_AUTHORITY[entry.source] ?? 0.2;
+-    return addEvidence(this._state, claimId, { ...entry, authority });
+-  }
+-
+-  // ── Research Decision ──────────────────────────────────────────
+-
+-  shouldResearch(claimId: string): boolean {
+-    const claim = this._state.claims.get(claimId);
+-    if (!claim) return false;
+-    return shouldResearchAgain(claim);
+-  }
+-
+-  canAnswerClaim(claimId: string): boolean {
+-    const claim = this._state.claims.get(claimId);
+-    if (!claim) return false;
+-    return canAnswer(claim);
+-  }
+-
+-  getResearchSummary(): string {
+-    const claims = Array.from(this._state.claims.values());
+-    const verified = claims.filter((c) => c.status === "verified").length;
+-    const unverified = claims.filter((c) => c.status === "unverified").length;
+-    const pending = claims.filter((c) => c.status === "pending_research").length;
+-    const conflicted = claims.filter((c) => c.status === "conflicted").length;
+-
+-    return [
+-      `Evidence State Summary`,
+-      `─────────────────────`,
+-      `Total claims: ${claims.length}`,
+-      `Verified: ${verified}`,
+-      `Unverified: ${unverified}`,
+-      `Pending research: ${pending}`,
+-      `Conflicted: ${conflicted}`,
+-      ``,
+-      `Claims needing research:`,
+-      ...getClaimsNeedingResearch(this._state).map(
+-        (c) => `  - [${c.id}] ${c.statement.slice(0, 80)}... (confidence: ${c.confidence.toFixed(2)})`
+-      ),
+-    ].join("\n");
+-  }
+-
+-  // ── Epistemic Firewall ─────────────────────────────────────────
+-  // Separates planning from answering.
+-  // The final generation gets: USER QUESTION + VERIFIED EVIDENCE + RESEARCH CONSTRAINTS
+-  // rather than simply: USER QUESTION → Qwen weights → answer
+-
+-  getVerifiedEvidenceForClaim(claimId: string): string {
+-    const claim = this._state.claims.get(claimId);
+-    if (!claim) return "(no claim found)";
+-
+-    const evidenceText = claim.evidence
+-      .map((e, i) => {
+-        const url = e.url ? ` [${e.url}]` : "";
+-        return `[${i + 1}] (${e.source}${url})\n    "${e.excerpt.slice(0, 200)}"`;
+-      })
+-      .join("\n\n");
+-
+-    return [
+-      `Claim: ${claim.statement}`,
+-      `Status: ${claim.status}`,
+-      `Confidence: ${claim.confidence.toFixed(2)}`,
+-      `Evidence:`,
+-      evidenceText || "  (none)",
+-    ].join("\n");
++    return addEvidence(this._state, claimId, entry);
+   }
+ 
+   // ── Build Research Prompt ──────────────────────────────────────
+-  // Constructs the prompt for the librarian to research a specific claim
++  // Constructs the prompt for the librarian to RECALL evidence for a claim.
+ 
+   buildResearchPrompt(claim: Claim): { system: string; user: string } {
+-    const system = `You are a research assistant for an autonomous coding agent.
+-Your job is to find evidence for specific claims. Output ONLY structured evidence.
++    const system = `You are a memory-recall process for an autonomous coding agent. You have NO tools and cannot open any URL — you are only recalling what you already know from your own weights. Do not invent details; recall only what you are confident about.
+
+=== 6. LOG FORENSICS: ultrawork.log ===
+45153 /c/Users/brutc/.pi/agent/extensions/ultrawork.log
+--- first 40 lines ---
+[2026-08-20T09:58:48.633Z] [LOAD] ultrawork extension loaded (log=C:\Users\brutc\.pi\agent\extensions\ultrawork.log)
+[2026-08-20T09:58:48.634Z] [LOAD] config: router=http://127.0.0.1:1234 model=qwen3.8-27b trigger=80000 reTriggerDelta=20000 maxRounds=3 timeoutMs=60000
+[2026-08-20T09:58:51.025Z] [SESSION] ════════════════════════════════════════════════════════════
+  ULTRAWORK SESSION 
+  log file: C:\Users\brutc\.pi\agent\extensions\ultrawork.log
+════════════════════════════════════════════════════════════
+[2026-08-20T09:58:51.026Z] [CONFIG] cwd=C:\Users\brutc\qwm-core resources=[README.md, TODO.md]
+[2026-08-20T09:58:51.026Z] [SESSION_START] session_start fired (ultraworkActive=false)
+[2026-08-20T09:59:10.631Z] [CMD] /ulw — ultrawork activated (retries reset)
+[2026-08-20T09:59:55.813Z] [PROMPT] before_agent_start: injecting completion contract + epistemic protocol
+[2026-08-20T10:00:25.686Z] [TOOL_START] bash args={"command":"ls -la && (test -f TODO.md && echo \"=== TODO.md ===\" && cat TODO.md || echo \"no TODO.md\")"}
+[2026-08-20T10:00:25.798Z] [TOOL_END] bash ok tokens=10777 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:00:49.341Z] [AGENT_END] agent_end fired incomplete=true retries=0/4
+[2026-08-20T10:00:49.342Z] [AGENT_END] LOOP GUARD TRIPPED — sending resume message (retry 1/4)
+[2026-08-20T10:00:49.854Z] [PROMPT] before_agent_start: injecting completion contract + epistemic protocol
+[2026-08-20T10:01:10.621Z] [TOOL_START] bash args={"command":"cd /c/Users/brutc/qwm-core 2>/dev/null || cd C:/Users/brutc/qwm-core; ls tests examples src"}
+[2026-08-20T10:01:10.621Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && (test -f venv/Scripts/python.exe && echo venv-py || ls venv) "}
+[2026-08-20T10:01:10.709Z] [TOOL_END] bash ok tokens=14713 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:01:10.762Z] [TOOL_END] bash ok tokens=14713 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:01:17.179Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && venv/Scripts/python.exe -m compileall -q src tests examples main.py setup.py && echo SYNTAX_OK"}
+[2026-08-20T10:01:17.334Z] [TOOL_END] bash ok tokens=14922 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:01:22.675Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && venv/Scripts/python.exe -m pytest tests -q 2>&1 | tail -5","timeout":300}
+[2026-08-20T10:01:30.728Z] [TOOL_END] bash ok tokens=15020 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:01:41.984Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && head -60 main.py"}
+[2026-08-20T10:01:42.026Z] [TOOL_END] bash ok tokens=15215 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:01:58.534Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy venv/Scripts/python.exe main.py --export 2>&1 | tail -8","timeout":120}
+[2026-08-20T10:01:59.643Z] [TOOL_END] bash ok tokens=16041 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:02:11.372Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 25 venv/Scripts/python.exe main.py 2>&1 | tail -15; echo \"EXIT=$?\"","timeout":60}
+[2026-08-20T10:02:36.482Z] [TOOL_END] bash ok tokens=16308 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:02:51.216Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 30 venv/Scripts/python.exe -u main.py > /tmp/ui_smoke.log 2>&1; echo \"EXIT=$?\"; tail -15 /tmp/ui_smoke.l
+[2026-08-20T10:03:21.324Z] [TOOL_END] bash ok tokens=16558 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:03:36.096Z] [TOOL_START] bash args={"command":"grep -iE \"traceback|error|exception\" /tmp/ui_smoke.log; echo \"grep_exit=$? (1 = clean)\"; wc -l /tmp/ui_smoke.log"}
+[2026-08-20T10:03:36.156Z] [TOOL_END] bash ok tokens=17005 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:03:44.820Z] [AGENT_END] agent_end fired incomplete=true retries=1/4
+[2026-08-20T10:03:44.820Z] [AGENT_END] LOOP GUARD TRIPPED — sending resume message (retry 2/4)
+[2026-08-20T10:03:45.334Z] [PROMPT] before_agent_start: injecting completion contract + epistemic protocol
+[2026-08-20T10:04:12.495Z] [TOOL_START] read args={"path":"C:/Users/brutc/qwm-core/examples/run_ablation_study.py"}
+[2026-08-20T10:04:12.503Z] [TOOL_END] read ok tokens=17658 lastLibrarian=0 autoTrigger=false
+[2026-08-20T10:04:18.843Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/qwm-core && ls src/core && wc -l src/core/*.py"}
+[2026-08-20T10:04:18.905Z] [TOOL_END] bash ok tokens=18380 lastLibrarian=0 autoTrigger=false
+--- last 120 lines ---
+[2026-09-15T17:38:44.625Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:38:53.916Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git diff --stat 451b89bae d1d3c3396 -- ggml/src/ggml-cuda/ && echo === && git diff 451b89bae d1d3c3396 -- ggml/src/ggml-cuda/mmq.cu | grep -E \"^[+-]\" | grep -vE \"^[+-
+[2026-09-15T17:38:54.057Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:39:02.716Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git diff 451b89bae d1d3c3396 -- ggml/src/ggml-cuda/mmq.cuh ggml/src/ggml-cuda/common.cuh ggml/src/ggml-cuda/ggml-cuda.cu | grep -E \"^[+-]\" | grep -vE \"^[+-][+-]\" | h
+[2026-09-15T17:39:02.834Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:39:59.433Z] [TOOL_START] bash args={"command":"for d in C:/Users/brutc/llamacpp_server/models/*/; do f=$(ls \"$d\"*.gguf 2>/dev/null | head -1); [ -n \"$f\" ] && echo \"== $d: $(basename $f)\"; done 2>/dev/null | head -30; echo; for m 
+[2026-09-15T17:41:07.431Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:41:35.935Z] [TOOL_START] bash args={"command":"for m in \"Qwen_Qwen3.5-4B-GGUF:NeoHorse-1-4B.i1-IQ3_XXS.gguf\" \"gemma4-31b:gemma-4-31B-it-Q4_K_M.gguf\" \"qwen3.6-27b-q4:Qwen3.6-27B-IQ4_XS-mtp.gguf\" \"Huihui-Qwen3.5-35B-A3B-abliterate
+[2026-09-15T17:44:13.421Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:44:27.500Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/llamacpp_server/models && for d in Qwen_Qwen3.5-4B-GGUF gemma4-31b qwen3.6-27b-q4 Huihui-Qwen3.5-35B-A3B-abliterated-GGUF nemotron3-puzzle qwen3.5-9b Spark-X2.5-4B nemotr
+[2026-09-15T17:44:28.508Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:44:46.659Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git log --format=\"%h %s\" 451b89bae..d1d3c3396 -- ggml/src/llama/models/ src/llama/ | grep -iE \"qwen|gemma|nemotron|llama|fusion|fuse|moe|expert|norm|kv|flash\" | head
+[2026-09-15T17:44:46.844Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:44:56.371Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git log --format=\"%h %s\" 451b89bae..d1d3c3396 -- src/models/ ggml/src/models/ 2>/dev/null | head -25; echo ===; git show d1d3c3396 --stat | grep -iE \"models/\" | head
+[2026-09-15T17:44:56.515Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:45:09.087Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git show 41abbfd59 --stat | head; ls src/models/ 2>/dev/null | grep -iE \"qwen|gemma|nemotron\" "}
+[2026-09-15T17:45:09.232Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:45:29.672Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git log --format=\"%h %s\" 451b89bae..d1d3c3396 -- src/models/qwen35.cpp src/models/qwen35moe.cpp src/models/gemma4.cpp src/models/nemotron-h-moe.cpp src/models/nemotron
+[2026-09-15T17:45:29.819Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:45:42.596Z] [TOOL_START] bash args={"command":"cd /c/llama.cpp && git log --format=\"%h %s\" 451b89bae..d1d3c3396 -- src/llama-graph.cpp src/llama-model.cpp src/llama-context.cpp src/llama-kv-cache.cpp | head -20"}
+[2026-09-15T17:45:42.693Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T17:53:20.090Z] [AGENT_END] agent_end fired (inactive — ultrawork not enabled)
+[2026-09-15T18:03:17.232Z] [SHUTDOWN] session_shutdown — cleared 0 timer(s) and pendingArgs
+[2026-09-15T18:03:23.977Z] [LOAD] ultrawork extension loaded (log=C:\Users\brutc\.pi\agent\extensions\ultrawork.log)
+[2026-09-15T18:03:23.977Z] [LOAD] config: router=http://127.0.0.1:1234 model=qwen3.8-27b trigger=80000 reTriggerDelta=20000 maxRounds=3 timeoutMs=60000
+[2026-09-15T18:03:29.564Z] [SESSION] ════════════════════════════════════════════════════════════
+  ULTRAWORK SESSION 
+  log file: C:\Users\brutc\.pi\agent\extensions\ultrawork.log
+════════════════════════════════════════════════════════════
+[2026-09-15T18:03:29.566Z] [CONFIG] cwd=C:\Users\brutc resources=[package.json]
+[2026-09-15T18:03:29.566Z] [SESSION_START] session_start fired (ultraworkActive=false)
+[2026-09-15T18:05:28.231Z] [PROMPT] before_agent_start: inactive — no prompt injection
+[2026-09-15T18:05:36.337Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.google.com/search?q=Leeds+city+council+recent+planning+approval+transport+infrastructure+2026+site:leeds.gov.uk"}
+[2026-09-15T18:05:38.498Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:05:39.651Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.bing.com/search?q=Leeds+city+council+recent+planning+approval+transport+infrastructure+2026"}
+[2026-09-15T18:05:40.712Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:05:41.667Z] [TOOL_START] read args={"path":".playwright-mcp\\page-2026-09-15T18-05-40-710Z.yml"}
+[2026-09-15T18:05:41.672Z] [TOOL_END] read (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:05:50.854Z] [TOOL_START] pw_browser_navigate args={"url":"https://leedstimes.co.uk/traffic-travel/leeds-council-introduces-new-traffic..."}
+[2026-09-15T18:05:51.632Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:05:53.096Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.leeds.gov.uk/plans-and-strategies/leeds-council-plan"}
+[2026-09-15T18:05:55.200Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:05:56.273Z] [TOOL_START] read args={"path":".playwright-mcp\\page-2026-09-15T18-05-55-199Z.yml"}
+[2026-09-15T18:05:56.276Z] [TOOL_END] read (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:06.328Z] [TOOL_START] pw_browser_navigate args={"url":"https://leedscivictrust.org.uk/planning-and-transport-news-september-2026"}
+[2026-09-15T18:06:08.853Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:10.023Z] [TOOL_START] pw_browser_navigate args={"url":"https://leedscivictrust.org.uk"}
+[2026-09-15T18:06:11.256Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:12.540Z] [TOOL_START] read args={"path":".playwright-mcp\\page-2026-09-15T18-06-11-254Z.yml"}
+[2026-09-15T18:06:12.544Z] [TOOL_END] read (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:17.410Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.leeds.gov.uk/parking-roads-and-travel/road-improvement"}
+[2026-09-15T18:06:18.156Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:20.232Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.bing.com/search?q=Leeds+Traffic+Restrictions+New+Bridleway+Leeds+2026"}
+[2026-09-15T18:06:21.173Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:23.243Z] [TOOL_START] read args={"path":".playwright-mcp\\page-2026-09-15T18-06-21-171Z.yml"}
+[2026-09-15T18:06:23.248Z] [TOOL_END] read (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:34.390Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.yorkshireeveningpost.co.uk/public-notices/leeds-public..."}
+[2026-09-15T18:06:37.926Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:40.451Z] [TOOL_START] pw_browser_navigate args={"url":"https://www.yorkshireeveningpost.co.uk/news/public-notices-leeds-public-notices-upcoming-traffic-restrictions-new-public-footpath-upgrade"}
+[2026-09-15T18:06:41.284Z] [TOOL_END] pw_browser_navigate (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:06:42.651Z] [SHUTDOWN] session_shutdown — cleared 0 timer(s) and pendingArgs
+[2026-09-15T18:06:46.382Z] [LOAD] ultrawork extension loaded (log=C:\Users\brutc\.pi\agent\extensions\ultrawork.log)
+[2026-09-15T18:06:46.382Z] [LOAD] config: router=http://127.0.0.1:1234 model=qwen3.8-27b trigger=80000 reTriggerDelta=20000 maxRounds=3 timeoutMs=60000
+[2026-09-15T18:06:49.927Z] [SESSION] ════════════════════════════════════════════════════════════
+  ULTRAWORK SESSION 
+  log file: C:\Users\brutc\.pi\agent\extensions\ultrawork.log
+════════════════════════════════════════════════════════════
+[2026-09-15T18:06:49.928Z] [CONFIG] cwd=C:\Users\brutc resources=[package.json]
+[2026-09-15T18:06:49.928Z] [SESSION_START] session_start fired (ultraworkActive=false)
+[2026-09-15T18:13:50.106Z] [SHUTDOWN] session_shutdown — cleared 0 timer(s) and pendingArgs
+[2026-09-15T18:13:54.514Z] [LOAD] ultrawork extension loaded (log=C:\Users\brutc\.pi\agent\extensions\ultrawork.log)
+[2026-09-15T18:13:54.515Z] [LOAD] config: router=http://127.0.0.1:1234 model=qwen3.8-27b trigger=80000 reTriggerDelta=20000 maxRounds=3 timeoutMs=60000
+[2026-09-15T18:13:57.984Z] [SESSION] ════════════════════════════════════════════════════════════
+  ULTRAWORK SESSION 
+  log file: C:\Users\brutc\.pi\agent\extensions\ultrawork.log
+════════════════════════════════════════════════════════════
+[2026-09-15T18:13:57.985Z] [CONFIG] cwd=C:\Users\brutc\Downloads resources=[(none)]
+[2026-09-15T18:13:57.985Z] [SESSION_START] session_start fired (ultraworkActive=false)
+[2026-09-15T18:15:00.534Z] [PROMPT] before_agent_start: inactive — no prompt injection
+[2026-09-15T18:16:04.840Z] [AGENT_END] agent_end fired (inactive — ultrawork not enabled)
+[2026-09-15T18:16:32.695Z] [PROMPT] before_agent_start: inactive — no prompt injection
+[2026-09-15T18:16:35.281Z] [TOOL_START] bash args={"command":"ls -la C:/Users/brutc/Downloads"}
+[2026-09-15T18:16:36.648Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:17:42.321Z] [AGENT_END] agent_end fired (inactive — ultrawork not enabled)
+[2026-09-15T18:19:07.421Z] [PROMPT] before_agent_start: inactive — no prompt injection
+[2026-09-15T18:19:14.682Z] [TOOL_START] bash args={"command":"ls -lh C:/Users/brutc/Downloads/train2014.zip && 7z l C:/Users/brutc/Downloads/train2014.zip 2>/dev/null | head -20"}
+[2026-09-15T18:19:14.787Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:19:21.510Z] [TOOL_START] bash args={"command":"python -c \"\nimport zipfile\nz = zipfile.ZipFile('C:/Users/brutc/Downloads/train2014.zip')\nnames = z.namelist()\nprint('files:', len(names))\nprint('first 5:', names[:5])\nprint('last 5:
+[2026-09-15T18:19:21.980Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:19:47.840Z] [TOOL_START] bash args={"command":"find C:/Users/brutc/Downloads -maxdepth 3 -iname \"*coco*\" 2>/dev/null; find C:/Users/brutc/Downloads -maxdepth 3 -iname \"*instances*\" -o -maxdepth 3 -iname \"*annotations*\" 2>/dev/nul
+[2026-09-15T18:19:54.722Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:21:13.192Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/Downloads/DeepLearnCOMP5625M\nls\necho \"---\"\nls train2014 | wc -l\necho \"---\"\ndu -sh train2014 2>/dev/null\nfind . -maxdepth 2 -iname \"*.json\" -o -maxdepth 2 -ina
+[2026-09-15T18:22:50.173Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:23:21.098Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/Downloads/DeepLearnCOMP5625M\necho \"=== QUICKSTART ===\"; head -30 QUICKSTART.md\necho \"=== TODO ===\"; head -40 TODO.md\necho \"=== file dates ===\"\nstat -c '%y %n' t
+[2026-09-15T18:23:21.253Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:23:48.141Z] [TOOL_START] bash args={"command":"cd C:/Users/brutc/Downloads/DeepLearnCOMP5625M\nwc -l coco_captions.csv captions.csv\ngrep -rl \"train2014\" --include=\"*.py\" --include=\"*.md\" . 2>/dev/null | grep -v venv | head\ngrep
+[2026-09-15T18:24:05.112Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:25:01.568Z] [AGENT_END] agent_end fired (inactive — ultrawork not enabled)
+[2026-09-15T18:25:42.664Z] [SHUTDOWN] session_shutdown — cleared 0 timer(s) and pendingArgs
+[2026-09-15T18:25:53.334Z] [LOAD] ultrawork extension loaded (log=C:\Users\brutc\.pi\agent\extensions\ultrawork.log)
+[2026-09-15T18:25:53.335Z] [LOAD] config: router=http://127.0.0.1:1234 model=qwen3.8-27b trigger=80000 reTriggerDelta=20000 maxRounds=3 timeoutMs=60000
+[2026-09-15T18:25:56.891Z] [SESSION] ════════════════════════════════════════════════════════════
+  ULTRAWORK SESSION 
+  log file: C:\Users\brutc\.pi\agent\extensions\ultrawork.log
+════════════════════════════════════════════════════════════
+[2026-09-15T18:25:56.906Z] [CONFIG] cwd=C:\Users\brutc\.pi resources=[TODO.md]
+[2026-09-15T18:25:56.906Z] [SESSION_START] session_start fired (ultraworkActive=false)
+[2026-09-15T18:27:36.576Z] [PROMPT] before_agent_start: inactive — no prompt injection
+[2026-09-15T18:29:31.427Z] [TOOL_START] bash args={"command":"ls -la ~/.pi/ 2>/dev/null; echo ---; find ~/.pi -maxdepth 3 -iname \"*ultrawork*\" 2>/dev/null; echo ---; find ~ -maxdepth 4 -iname \"*ultrawork*\" 2>/dev/null | head -50"}
+[2026-09-15T18:29:31.429Z] [TOOL_START] bash args={"command":"rg -il \"ultrawork\" ~/.pi 2>/dev/null | head -30"}
+[2026-09-15T18:29:34.026Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:29:38.244Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:30:07.651Z] [TOOL_START] bash args={"command":"cd /c/Users/brutc/.pi/agent/extensions && ls -la ultrawork/ ultrawork.bak/ 2>/dev/null; echo ---; wc -l ultrawork.ts ultrawork.ts.bak ultrawork.ts.bak-0.73 ultrawork/ultrawork.ts ultrawork
+[2026-09-15T18:30:07.651Z] [TOOL_START] bash args={"command":"cd /c/Users/brutc/.pi/agent && ls extensions/; echo ---; head -50 extensions/ultrawork.ts 2>/dev/null"}
+[2026-09-15T18:30:07.739Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:30:07.741Z] [TOOL_END] bash (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:31:44.205Z] [TOOL_START] write args={"path":"C:/Users/brutc/.pi/agent/extensions/ulw-analysis/run.sh","content":"#!/bin/bash\n# Mechanical forensics for ultrawork deep analysis\nset -uo pipefail\nOUT=/c/Users/brutc/.pi/agent/extensions/
+[2026-09-15T18:31:44.213Z] [TOOL_END] write (inactive — ultrawork not enabled via /ulw)
+[2026-09-15T18:31:57.819Z] [TOOL_START] interactive_shell args={"command":"bash /c/Users/brutc/.pi/agent/extensions/ulw-analysis/run.sh","mode":"dispatch","name":"ulw-forensics","background":true}
+[2026-09-15T18:31:57.853Z] [TOOL_END] interactive_shell (inactive — ultrawork not enabled via /ulw)
+--- event-type histogram (2nd field) ---
+  19841 [TOOL_START]
+  19837 [TOOL_END]
+   2198 [LIB]
+    714 [AGENT_END]
+    453 [PROMPT]
+    436 [LOAD]
+    259 [COMPACT]
+    215 [CONFIG]
+    211 file:
+    211 [SESSION_START]
+    211 [SESSION]
+    211 SESSION
+    211 
+     58 [CMD]
+     38 [SHUTDOWN]
+     37 [TOOL]
+     12 [RESEARCH]
+--- distinct phases/tags ---
+    436 [LOAD]
+    259 [COMPACT]
+     12 [RESEARCH]
+
+=== 7. SMOKE TEST ===
+398 /c/Users/brutc/.pi/agent/smoke_test.ts
+1:// ── Smoke Test for Ultrawork Plugin ────────────────────────────────
+20:} from "./extensions/ultrawork/evidence_state";
+22:import { createResearchLoop, ResearchLoopEngine } from "./extensions/ultrawork/research_loop";
+23:import { EpistemicProtocol, classifyClaim, buildEpistemicFirewall } from "./extensions/ultrawork/epistemic_protocol";
+
+=== 8. CHANGELOG HEAD ===
+# Ultrawork — Refactor Changelog
+
+**Date:** 2026-09-10
+**Scope:** `ultrawork.ts` + the `ultrawork/` submodules
+**Status:** Typechecked (strict, noUnusedLocals/Parameters), loaded through pi's own
+jiti loader, and behaviorally smoke-tested. Backups preserved (see *Rollback*).
+
+---
+
+## Summary
+
+A single architectural fix — **memory evidence carries zero confidence weight** — plus
+four bug fixes (B4, B2/B3, B5, B7) and a set of cleanups (B1, B6–B10) and dead-code
+removal. The core problem was a **circularity**: the research loop asked the local
+model to "verify" a claim, the model recalled from memory (no tools), that recall was
+stored as high-authority evidence, and the confidence math marked the claim
+`verified` — so a claim could confirm itself from its own weights with no live source
+ever opened.
+
+Net result: **1596 → 1464 lines** (−132) *while* adding the shared LLM helper, the
+language-agnostic resource list, per-claim nudge output, and the load-bearing answer
+gate.
+
+| File | Before | After | Δ |
+|---|---|---|---|
+| `ultrawork.ts` | 623 | 710 | +87 |
+| `ultrawork/evidence_state.ts` | 317 | 330 | +13 |
+| `ultrawork/research_loop.ts` | 396 | 245 | **−151** |
+| `ultrawork/epistemic_protocol.ts` | 260 | 179 | **−81** |
+
+---
+
+## The four priority fixes
+
+### P1 — B4: source label reconciled against the URL in `addEvidence`
+*File: `evidence_state.ts`*
+
+**Before:** the agent (or the loop) reported `source: "official_docs"` with
+`url: "https://reddit.com/..."` and the label was trusted at authority 1.0. The
+self-assigned label was the load-bearing — and circular — signal.
+
+**After:** `addEvidence` calls `classifySource(url)` and takes the **lesser** of
+(reported label, URL-classified label) as the effective source. A `reddit.com` URL can
+no longer masquerade as `official_docs`. When the label is downgraded, the original
+label is preserved on `reportedSource` for display. Memory evidence (`origin:
+"memory"`) is never reconciled from its *recalled* URL — a remembered pointer is not
+proof of what the page says.
+
+```
+official_docs + reddit.com  →  community  (0.45), reportedSource = "official_docs"
+official_docs + docs.python.org  →  official_docs (1.0)   [label honest, kept]
+```
+
+### P2 — B2/B3: collapse duplicate status functions
+*Files: `evidence_state.ts`, `research_loop.ts`*
+
+**Before:** `research_loop.ts` had its *own* private `recalculateConfidence` and
+`determineStatus`, which could diverge from `evidence_state.ts` on the *same* claim —
+so `evidence_add` and the research loop could disagree about a claim's confidence and
+status.
+
+**After:** one shared implementation each, exported from `evidence_state.ts` and
+imported by `research_loop.ts`:
+- `recalculateConfidence(claim)` — squares authority for a strong high-authority
+  signal; guards the all-zero (memory-only) case so it returns `0`, not `NaN`.
+- `resolveStatus(state, claim)` — shared status resolver (see B1 for the
+  `state`-dependency and B3 for the conflict fix).
+
+`research_loop.ts` no longer keeps copies; it delegates.
+
+### B3 (part of P2): conflict = opposing *content*, not source-type diversity
+*File: `evidence_state.ts`*
+
+**Before:** a claim was "conflicted" when it had *diverse source types* — so three
+different sources all **agreeing** could be flagged as a conflict (a false positive),
+while two sources of the *same* type genuinely **disagreeing** were not (a false
+negative).
+
+**After:** conflict is detected on the *excerpt text*. `NEG_RE`/`AFF_RE` look for a
+negation and an affirmation; a genuine conflict requires both, on **≥ 2 distinct
+
+=== 9. OLD LAST WORKING STATE ===
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { readFileSync } from "fs";
+
+export default function (pi: ExtensionAPI) {
+  const MAX_RETRIES = 4;
+  let retries = 0;
+  let ultraworkActive = false;
+
+  // ── LOOP GUARD ─────────────────────────────────────────────────
+  // Fires when the agent stops (last turn had zero tool calls).
+  // If TODO.md has unchecked items, reprompt instead of allowing exit.
+  pi.on("agent_end", async (_event, ctx) => {
+    if (!ultraworkActive) return;
+
+    let incomplete = false;
+    try {
+      const todoPath = `${ctx.cwd}/TODO.md`.replace(/\//g, "\\");
+      const todo = readFileSync(todoPath, "utf-8");
+      incomplete = /^- \[ \]/m.test(todo);
+    } catch {
+      // No TODO.md — skip loop guard
+    }
+
+    if (incomplete && retries < MAX_RETRIES) {
+      retries++;
+      ctx.ui.notify(
+        `Ultrawork: incomplete TODOs detected (retry ${retries}/${MAX_RETRIES})`,
+        "info"
+      );
+      // Defer so the agent fully releases its processing lock before we re-trigger
+      setTimeout(() => {
+        pi.sendUserMessage(
+          "You stopped but TODO.md still has unchecked items. " +
+          "Resume. Use tools. Do NOT summarize progress — act on the next item and append any unlisted todos for any recent new findings \n"+
+          "Lastly Review the work completed in this directory when done. Check: (1) are there syntax errors or failed unit/integration tests?, (2) Is a full successful smoketest working by Using it like a human user would interact interact with it including the UI. exaustively check that no features didn't silently break`, (3) are all TODO.md items marked [x]. Report ONLY failures. If none, say Verification PASS.",
+        );
+      }, 500);
+      return;
+    }
+
+    // ── VERIFICATION PASS ───────────────────────────────────────
+    // retries = 0;
+    // ultraworkActive = false;
+
+    // try {
+    //   ctx.ui.notify("Ultrawork: running verification sub-agent...", "info");
+    //   pi.sendUserMessage("Lastly Review the work completed in this directory when done. Check: (1) are there syntax errors or failed unit/integration tests?, (2) Is a full successful smoketest working by Using it like a human user would interact interact with it including the UI. exaustively check that no features didn't silently break`, (3) are all TODO.md items marked [x]. Report ONLY failures. If none, say Verification PASS.", { deliverAs: "steer" })
+    //   const result = execSync(
+    //     `pi --print "You are a QA agent. Review the work just completed in this directory. Check: (1) are there syntax errors or failed unit/integration tests?, (2) Is a full successful smoketest works? Use it like a human user including the UI, (3) are all TODO.md items marked [x]. Report ONLY failures. If none, say PASS."`,
+    //     { cwd: ctx.cwd, timeout: 90_000 }
+    //   ).toString().trim();
+
+    //   await pi.appendEntry("verification-result", { content: result });
+    //   ctx.ui.notify(
+    //     result.includes("PASS") ? "Verification: PASS ✓" : "Verification: issues found — see log",
+    //     result.includes("PASS") ? "info" : "error"
+    //   );
+    // } catch (e) {
+    //   ctx.ui.notify(`Verification follow-up msg failed to run: ${e}`, "error");
+    // }
+  });
+
+  // ── SYSTEM PROMPT INJECTION ─────────────────────────────────────
+  // Reinforce the contract at field level so model internalises it.
+  pi.on("before_agent_start", (event, _ctx) => {
+    if (!ultraworkActive) return {};
+    return {
+      systemPrompt:
+        event.systemPrompt +
+        "\n\n## Completion contract (ENFORCED BY HARNESS)\n" +
+        "- Maintain TODO.md. Mark items [x] only when fully verified and append Todos necessary before proceeding and maintain by adding more or removing with new findings.\n" +
+        "- Never produce a final text response without a preceding tool call unless ALL items are [x].\n" +
+        "- Update scrapbook.md (max 500 words) before stopping.\n" +
+        "- Write files in chunks ≤500 lines. Split logic across files if needed.\n" +
+        "- ALWAYS SmokeTest Any tiny code change before moving on to writing the next code No matter how small ALWAYS SmokeTest, including the UI/frontend if the project has a UI.\n" +
+        "- always speculate if the command will be a foreground blocking process if so find a way to run it with bg_run.\n"+
+        "- when exploring the wiring of code, ensure to make lossLess-compression representation of the code in conversation context using ASCII-art.\n"+
+        "- Never hastily declare completion. Check your own work by smokeTest. use sleep timers to periodically babysit long processes where possible python -c import time; time.sleep(200); print(200 sec elapsed)\n",
+    };
+  });
+
+  // ── /ulw COMMAND ──────────────────────────────────────────
+  // User types /ulw to activate for the next prompt.
+  pi.registerCommand("ulw", {
+    description: "Activate loop-guard + verification for next task",
+    handler: async (_args, _ctx) => {
+      ultraworkActive = true;
+      retries = 0;
+      _ctx.ui.notify("ult-wrk enabled. follow up with prompt", "info");
+      await pi.appendEntry("ultrawork-activated", {
+        content: "Ultrawork active: loop guard + verification enabled.",
+      });
+    },
+  });
+}
+
+=== 10. ROADMAP HEAD ===
+This is very doable, and **the hard part isn't Qwen's size**. The key is to stop treating the model's weights as the authoritative memory and instead make it operate inside a **research loop** where its job is to decide what it needs to know, retrieve it, inspect the evidence, and only then answer.
+
+The important distinction is:
+
+> **“I don't know” should not be something the model merely feels. It should be a state produced by your agent architecture.**
+
+### A good architecture
+
+Think of your local Qwen as the **reasoning/orchestration layer**, not the database.
+
+```text
+                     ┌─────────────────────┐
+                     │       Qwen           │
+                     │  reasoning / plans   │
+                     └──────────┬──────────┘
+                                │
+                    "Do I have sufficient evidence?"
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+                   YES                      NO
+                    │                       │
+                    ▼                       ▼
+              formulate answer       Research loop
+                                            │
+                           ┌────────────────┼───────────────┐
+                           ▼                ▼               ▼
+                       Playwright       local docs       APIs/files
+                       web/browser      knowledge        etc.
+                           │                │
+                           └────────┬───────┘
+                                    ▼
+                              evidence store
+                                    │
+                                    ▼
+                              Qwen evaluates
+                                    │
+                         ┌──────────┴──────────┐
+                         │                     │
+                     sufficient           insufficient
+                         │                     │
+                         ▼                     ▼
+                      answer             research again
+```
+
+The crucial thing is that **Playwright becomes an information-gathering tool, not merely a browser tool**.
+
+---
+
+## Don't ask Qwen "do you know?"
+
+I wouldn't rely on a prompt like:
+
+> "If you don't know something, use Playwright."
+
+That's too fuzzy.
+
+A model can confidently hallucinate because the weights contain something *plausible*.
+
+Instead, give it an explicit **epistemic protocol**.
+
+For example:
+
+```text
+KNOWLEDGE POLICY
+
+Your internal model knowledge is NOT considered authoritative.
+
+For claims involving:
+- current information
+- software versions
+- APIs
+- documentation
+- specifications
+- prices
+- people or organizations
+- recent events
+- anything the user explicitly asks you to research
+
+you MUST obtain external evidence before answering.
+
+Prefer primary sources:
+1. official documentation
+2. official websites
+3. source repositories
+4. standards/specifications
+5. reputable secondary sources
+
+Your internal knowledge may be used to:
+- formulate hypotheses
+- understand terminology
+- decide what to search for
+- reason about retrieved evidence
+
+It may NOT be used as evidence when external verification is required.
+
+If evidence is insufficient, continue researching.
+
+If you cannot obtain sufficient evidence after reasonable research,
+explicitly state that the information could not be verified.
+
+=== 11. IMPORT/DEP MAP of current ultrawork.ts ===
+1:import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+2:import { Type } from "typebox";
+3:import { readFileSync, existsSync } from "fs";
+4:import { join } from "path";
+5:import { EpistemicProtocol } from "./ultrawork/epistemic_protocol";
+6:import { createResearchLoop, type ResearchLoopEngine } from "./ultrawork/research_loop";
+7:import {
+14:import { ulwLog, ulwLogSessionStart, ULW_LOG_FILE } from "./ultrawork/logger";
+
+=== 12. SESSIONS USING ultrawork (counts per project) ===
+/c/Users/brutc/.pi/agent/sessions/--C----/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.pi--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.pi-agent-extensions--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.pi-agent-skills--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.pi-cua-scratch--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.zeroclaw-workspace-job-application--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.zeroclaw-workspace-job-application-cvs--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-.zeroclaw-workspace-minimumwage-job-applications--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-AppData-Local-OpenCode--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-DeepLearnCOMP5625M--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-GTABrowserTest--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-Graph-cw3--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-HA_wellness_directory--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-Machine-learn-COMP5611M-apr-28-23-59--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-throwaway--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-ultrawork-test--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-ulw-smoke--/
+/c/Users/brutc/.pi/agent/sessions/--C--Users-brutc-Downloads-ulw-sprint--/
+
+DONE Tue Sep 15 19:31:58 GMTST 2026

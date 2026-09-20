@@ -1,0 +1,80 @@
+# Dockerfile for testing pi-ultra-scout setup in a clean container (lightweight)
+# 
+# This validates the SETUP.md instructions from scratch (without llama.cpp compilation).
+# The llama.cpp router runs on the HOST (Windows), not in the container.
+# Run: docker build -t pi-ultra-scout-test -f Dockerfile.test .
+#      docker run --rm -it --add-host=host.docker.internal:host-gateway pi-ultra-scout-test
+
+FROM ubuntu:24.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV BUN_INSTALL=/root/.bun
+ENV PATH=$BUN_INSTALL/bin:$PATH
+
+# Install base dependencies + Node.js 22 (required for enableCompileCache in pi-coding-agent)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    git \
+    python3 \
+    python3-pip \
+    python3-venv \
+    wget \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 from NodeSource (required for enableCompileCache in pi-coding-agent)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
+
+# Install pi coding agent
+RUN $BUN_INSTALL/bin/bun add -g @earendil-works/pi-coding-agent
+
+# NOTE: llama.cpp router runs on the HOST (Windows), not in this container.
+# The container connects to host.docker.internal:1234
+# We skip llama.cpp installation in the container for faster testing.
+# If needed locally, download from: https://github.com/ggerganov/llama.cpp/releases
+
+# Install Chrome (for Playwright)
+RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages for grading/charts
+RUN pip3 install --no-cache-dir --break-system-packages matplotlib pymupdf
+
+# Create working directory
+WORKDIR /workspace
+
+# Copy the entire repo (for testing the cloned repo scenario)
+COPY . /workspace/pi-ultra-scout/
+
+# Set up minimal pi config (no auth needed for local extension)
+RUN mkdir -p /root/.pi && echo '{"model":{"defaultProvider":"llamacpp","defaultModel":"qwen3.8-27b"}}' > /root/.pi/settings.json
+
+# Install the extension from local source
+RUN cd /workspace/pi-ultra-scout && $BUN_INSTALL/bin/pi extension add ./extension 2>&1 || true
+
+# Run the probe tests that don't require a full pi/llama.cpp environment
+# Note: test files need explicit path since they don't follow bun's naming convention
+RUN cd /workspace/pi-ultra-scout/extension && $BUN_INSTALL/bin/bun test ./ulw-analysis/probe_shapes.ts
+RUN cd /workspace/pi-ultra-scout/extension && $BUN_INSTALL/bin/bun test ./ulw-analysis/probe_evidence.ts
+# Skip smoke_dispatch and smoke_wiring - they require a working pi + llama.cpp environment
+
+# Verify grading script works
+RUN cd /workspace/pi-ultra-scout/grading && python3 grade.py ../experiments/runs 2>/dev/null || true
+
+# Verify charts script works
+RUN cd /workspace/pi-ultra-scout/charts && python3 make_charts.py 2>/dev/null || true
+
+# Default command: interactive shell for manual testing
+CMD ["/bin/bash"]

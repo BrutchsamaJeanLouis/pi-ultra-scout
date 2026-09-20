@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build outputs
+*.tsbuildinfo
+dist/
+build/
+
+# Experiment runs (large, generated)
+experiments/runs/
+!experiments/runs/.gitkeep
+
+# Generated charts (regenerated on install)
+charts/out/
+!charts/out/.gitkeep
+
+# Generated paper PDF (regenerated from HTML)
+paper/paper.pdf
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+ultrawork.log
+
+# Local config (contains tokens)
+.pi/settings.json
+.pi/config.json
+
+# Model files (large, not tracked)
+*.gguf
+*.bin
+models/
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Extension npm install artifacts (re-generated on install)
+extension/node_modules/
+extension/package-lock.json
+extension/*.log
