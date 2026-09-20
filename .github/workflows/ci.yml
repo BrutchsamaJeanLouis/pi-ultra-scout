@@ -51,11 +51,15 @@ jobs:
           bun test ./ulw-analysis/probe_evidence.ts
       
       - name: Run grading & charts (if experiment data exists)
+        shell: bash
         run: |
-          cd grading
-          python3 grade.py ../experiments/runs 2>/dev/null || true
-          cd ../charts
-          python3 make_charts.py 2>/dev/null || true
+          PY=$(command -v python3 || command -v python || true)
+          if [ -n "$PY" ] && [ -d experiments/runs ]; then
+            (cd grading && "$PY" grade.py ../experiments/runs) 2>&1 || true
+            (cd charts && "$PY" make_charts.py) 2>&1 || true
+          else
+            echo "No python or no experiment runs — skipping"
+          fi
 
   publish-npm:
     name: Publish to npm
