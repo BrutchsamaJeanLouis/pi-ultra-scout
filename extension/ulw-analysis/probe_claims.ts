@@ -53,9 +53,9 @@ const scenario = {
   untouched: [{ label: "Task list", path: "TODO.md" }],
   stale: [] as { label: string; path: string }[],
   digest: [
-    "read: C:/Users/brutc/.pi/agent/extensions/ultrawork.ts",
+    "read: extensions/ultrawork.ts",
     "bash: grep -n librarian ultrawork.log | tail",
-    "edit: C:/Users/brutc/.pi/agent/extensions/ultrawork.ts",
+    "edit: extensions/ultrawork.ts",
   ],
 };
 

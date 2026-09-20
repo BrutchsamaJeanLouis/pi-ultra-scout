@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Dummy-proof test: weak models WITH (C2) vs WITHOUT (C0) the ulw mechanism.
 # Payload A (p-retry trap). Sequential. Each cell fully reset + snapshotted by run_cell.sh.
-set -u
-R=/c/Users/brutc/.pi/agent/prj-ultrawork-paper-publish/experiments
-L=/c/Users/brutc/.pi/agent/prj-ultrawork-paper-publish/experiments/grid.log
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+R="${ROOT}/experiments"
+L="${R}/grid.log"
 
 run() { # prov model tag cond
   local prov="$1" model="$2" tag="$3" cond="$4"
