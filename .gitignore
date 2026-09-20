@@ -54,3 +54,6 @@ docker-compose.override.yml
 tmp/
 temp/
 *.tmp
+# Docker test output
+docker/artifacts/
+docker/artifacts;C/

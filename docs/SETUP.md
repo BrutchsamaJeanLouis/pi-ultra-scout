@@ -194,12 +194,12 @@ Create or edit `~/.pi/settings.json`:
 }
 ```
 
-**Alternative (via CLI):**
+**Alternative (interactive TUI):**
 ```bash
-pi config set playwright.mcpToken "YOUR_TOKEN"
-pi config set playwright.userDataDir "/tmp/chrome-pdf-prof"
-pi config set extensions.pi-ultra-scout.enabled true
+pi config          # global settings TUI (~/.pi/agent/settings.json)
+pi config -l       # project-local overrides (.pi/settings.json)
 ```
+(There is no `pi config set <key> <value>` subcommand — edit `settings.json` directly or use the TUI above.)
 
 ---
 
@@ -208,26 +208,24 @@ pi config set extensions.pi-ultra-scout.enabled true
 ### Option A: From this repository (local development)
 
 ```bash
-git clone https://github.com/brutc/pi-ultra-scout.git
+git clone https://github.com/BrutchsamaJeanLouis/pi-ultra-scout.git
 cd pi-ultra-scout
-pi extension add ./extension
+pi install .
 ```
 
-### Option B: From npm (once published)
+### Option B: From npm (recommended)
 
 ```bash
-pi extension add pi-ultra-scout
+pi install npm:pi-ultra-scout
 ```
 
 ### Verify Installation
 
 ```bash
-pi config get extensions
-# Should show "pi-ultra-scout" in the list
-
-pi extensions list
-# Should show ultrawork tools: research_dispatch, evidence_register, etc.
+pi list
+# Should show pi-ultra-scout (installed extension) in the package list
 ```
+Verify the tools registered by starting pi and checking the tool list, or run a task and confirm `research_dispatch` is available.
 
 ---
 
@@ -364,7 +362,7 @@ bun add -g @earendil-works/pi-coding-agent
 - Restart terminal after PATH changes
 
 ### "Playwright browser not connected"
-- Chrome extension token missing → re-copy from extension → `pi config set playwright.mcpToken`
+- Chrome extension token missing → re-copy from extension → set `playwright.mcpToken` in `~/.pi/settings.json`
 - Desktop Chrome holding profile lock → close Chrome, use `--user-data-dir=/tmp/chrome-pdf-prof`
 
 ### "Connection error" in experiment cells
@@ -393,7 +391,7 @@ After setup, verify each component:
 - [ ] `pi --version` → shows version
 - [ ] `llama-server.exe --version` → shows version
 - [ ] `curl http://127.0.0.1:1234/v1/models` → shows loaded models
-- [ ] `pi config get extensions` → includes pi-ultra-scout
+- [ ] `pi list` → includes pi-ultra-scout
 - [ ] `pi -p "list tools"` → shows research_dispatch, evidence_*
 - [ ] Test task (Step 8) → produces `.pi/evidence/claim_1.json` with `status=verified`
 - [ ] `python ../grading/grade.py runs` → produces scoreboard.json

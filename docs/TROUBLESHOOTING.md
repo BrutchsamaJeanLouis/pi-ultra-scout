@@ -17,14 +17,14 @@ $env:PATH += ";$env:USERPROFILE\.bun\bin"
 # Restart terminal
 ```
 
-### `pi extension add` fails with "not a valid extension"
-**Cause:** Extension entry point not found or missing `piExtension` in package.json.
+### `pi install` fails with "not a valid package"
+**Cause:** The package manifest (the `pi` key in the root package.json) or the extension file is missing.
 **Fix:**
 ```bash
-# Verify extension structure
+# Verify the package manifest at the repo root
 ls extension/ultrawork.ts
-cat extension/package.json | grep -A 20 piExtension
-# Ensure package.json has piExtension.entryPoint = "extension/ultrawork.ts"
+grep -A 4 '"pi"' package.json
+# Ensure the root package.json has: "pi": { "extensions": ["extension/ultrawork.ts"] }
 ```
 
 ### TypeScript errors on load
@@ -90,12 +90,11 @@ This prevents unloading. Or load on-demand by hitting the endpoint first.
 **Fix:**
 ```bash
 # 1. Ensure Chrome is OPEN (desktop)
-# 2. Re-copy token from 🎭 extension icon
-# 3. Update config
-pi config set playwright.mcpToken "NEW_TOKEN"
-
+# 2. Re-copy token from the 🎭 extension icon
+# 3. Set playwright.mcpToken in ~/.pi/settings.json (no `pi config set` subcommand exists):
+#    { "playwright": { "mcpToken": "NEW_TOKEN", "userDataDir": "/tmp/chrome-pdf-prof" } }
 # 4. If profile lock: close all Chrome windows, use temp profile
-pi config set playwright.userDataDir "/tmp/chrome-pdf-prof"
+#    (userDataDir above)
 ```
 
 ### "Playwright extension not found" in Chrome
@@ -177,9 +176,9 @@ llama-server.exe --host 0.0.0.0 --port 1234 ...
 New-NetFirewallRule -DisplayName "Allow Docker to llama.cpp" -Direction Inbound -LocalPort 1234 -Protocol TCP -Action Allow
 ```
 
-### Docker build fails on `pi extension add`
-**Cause:** Extension path not copied correctly.
-**Fix:** Ensure Dockerfile copies `extension/` before running `pi extension add`.
+### Docker build fails on `pi install`
+**Cause:** The package (root package.json + `extension/`) not available where `pi install` runs.
+**Fix:** Ensure the Dockerfile has the package present before running `pi install npm:pi-ultra-scout` (or `pi install .` from the repo root).
 
 ---
 
@@ -190,7 +189,7 @@ New-NetFirewallRule -DisplayName "Allow Docker to llama.cpp" -Direction Inbound 
 **Fix:**
 ```bash
 # Check extension loaded
-pi config get extensions | grep ultra
+pi list | grep -i ultra
 
 # Pass env correctly (Windows cmd):
 set PI_ULW_AUTOACTIVE=1 && pi -p ...

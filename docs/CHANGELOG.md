@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [1.0.1] - 2026-09-21
+
+### Fixed (docs)
+- **Install command**: README/SETUP documented `pi extension add pi-ultra-scout`, but pi has no `extension` subcommand and a bare `pi install pi-ultra-scout` is treated as a local path ("Path does not exist"). All install instructions now use the correct `pi install npm:pi-ultra-scout` (or `pi install .` from a local clone).
+- **Nonexistent CLI commands**: replaced `pi config set <key> <value>` and `pi config get extensions` / `pi extensions list` (none exist) with editing `~/.pi/settings.json` directly (or the `pi config` TUI) and `pi list`.
+- **Activation**: removed the made-up `echo '{"extensions":[...]}' > .pi/config.json` step; the extension auto-loads after `pi install` and is activated with `/ulw` (interactive) or `PI_ULW_AUTOACTIVE=1` (headless).
+
+### Validated
+- Clean Linux (Docker, ubuntu 24.04 + Node 22) install via `pi install npm:pi-ultra-scout` → extension loads, all 6 ulw tools + `pw_browser_*` register.
+- End-to-end `research_dispatch` with a weak model (NVIDIA `nemotron-3.5-lightning-30b-a3b`) + headless Chromium: child librarian opens live sources, writes `.pi/evidence/<claimId>.json` (verified, conf 1.0).
+
+---
+
 ## [1.0.0] - 2026-09-20
 
 ### Added

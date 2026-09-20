@@ -73,13 +73,13 @@ bun add -g @earendil-works/pi-coding-agent
 ### Install the extension
 
 ```bash
-# Option A: From npm (once published)
-pi extension add pi-ultra-scout
+# Option A: From npm (recommended)
+pi install npm:pi-ultra-scout
 
 # Option B: From local source (this repo)
 git clone https://github.com/BrutchsamaJeanLouis/pi-ultra-scout.git
 cd pi-ultra-scout
-pi extension add ./extension
+pi install .
 ```
 
 ### Configure Playwright MCP Bridge (required for `research_dispatch`)
@@ -96,12 +96,7 @@ The `research_dispatch` tool uses a **real Chrome browser** via Playwright MCP B
    - Click "Copy Token" (or "Show Token" → copy the long string)
    - This token authenticates the bridge to your Chrome profile
 
-3. **Add to pi config**:
-   ```bash
-   pi config set playwright.mcpToken "YOUR_TOKEN_HERE"
-   pi config set playwright.userDataDir "/tmp/chrome-pdf-prof"  # avoids profile lock conflicts
-   ```
-   Or edit `~/.pi/settings.json` directly:
+3. **Add to pi config** — edit `~/.pi/settings.json` directly (there is no `pi config set` subcommand; `pi config` is a TUI):
    ```json
    {
      "playwright": {
@@ -129,15 +124,16 @@ Wait for "HTTP server listening on 127.0.0.1:1234".
 ### Run your first ultrawork task
 
 ```bash
-# Terminal 2: Use pi with the extension enabled
+# The extension loads automatically after `pi install` (no per-run flag needed).
 cd /path/to/your/project
 
-# Enable ultrawork for this session
-pi -p --extension pi-ultra-scout "Your task here..."
+# Interactive: start pi, type /ulw to activate, then give your task
+pi
+#   > /ulw
+#   > <your task>
 
-# Or make it permanent for the project
-echo '{"extensions": ["pi-ultra-scout"]}' > .pi/config.json
-pi -p "Your task here..."
+# Headless: activate via env var
+PI_ULW_AUTOACTIVE=1 pi -p "Your task here..."
 ```
 
 ### Activate the mechanism (headless/auto mode)
@@ -343,9 +339,9 @@ The Dockerfile installs Bun, pi, llama.cpp, Chrome, clones this repo, installs t
 |---------|-------|-----|
 | `research_dispatch` times out | Librarian cold-load + router contention | Increase `PI_RESEARCH_TIMEOUT_MS` to 660000+ |
 | "Connection error" in 4B cells | llama.cpp router down / model not loaded | Ensure router running, model pinned (`--sleep-idle-seconds -1 --load-mode none`) |
-| Playwright "browser not connected" | Chrome extension token missing/expired | Re-copy token from Chrome extension → `pi config set playwright.mcpToken` |
+| Playwright "browser not connected" | Chrome extension token missing/expired | Re-copy token from Chrome extension → set `playwright.mcpToken` in `~/.pi/settings.json` |
 | Chrome profile lock | Desktop Chrome open with same profile | Use `--user-data-dir=/tmp/chrome-pdf-prof` |
-| `PI_ULW_AUTOACTIVE=1` not working | Extension not loaded | Check `pi config get extensions` includes `pi-ultra-scout` |
+| `PI_ULW_AUTOACTIVE=1` not working | Extension not loaded | Check `pi list` shows `pi-ultra-scout` installed |
 | Tests pass but defaults wrong | Weak model confabulated from memory | This is the bug ulw fixes — enable C2 and re-run |
 
 Full troubleshooting: `docs/TROUBLESHOOTING.md`
@@ -382,11 +378,11 @@ git push origin main --tags
 ### npm Package
 
 ```bash
-# Install from npm (once published)
-pi extension add pi-ultra-scout
+# Install from npm (recommended)
+pi install npm:pi-ultra-scout
 
-# Or with specific version
-pi extension add pi-ultra-scout@1.0.0
+# Or with a specific version
+pi install npm:pi-ultra-scout@1.0.1
 ```
 
 ### Package Manifest

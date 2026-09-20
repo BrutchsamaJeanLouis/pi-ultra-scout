@@ -85,7 +85,7 @@ echo "✅ Python packages installed"
 # Install pi-ultra-scout extension
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "📦 Installing pi-ultra-scout extension from $REPO_ROOT..."
-pi extension add "$REPO_ROOT/extension"
+pi install "$REPO_ROOT"
 echo "✅ Extension installed"
 
 # Verify
