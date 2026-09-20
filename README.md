@@ -77,7 +77,7 @@ bun add -g @earendil-works/pi-coding-agent
 pi extension add pi-ultra-scout
 
 # Option B: From local source (this repo)
-git clone https://github.com/brutc/pi-ultra-scout.git
+git clone https://github.com/BrutchsamaJeanLouis/pi-ultra-scout.git
 cd pi-ultra-scout
 pi extension add ./extension
 ```

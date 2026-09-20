@@ -30,12 +30,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/brutc/pi-ultra-scout.git"
+    "url": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout.git"
   },
   "bugs": {
-    "url": "https://github.com/brutc/pi-ultra-scout/issues"
+    "url": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout/issues"
   },
-  "homepage": "https://github.com/brutc/pi-ultra-scout#readme",
+  "homepage": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout#readme",
   "engines": {
     "node": ">=20.0.0",
     "bun": ">=1.0.0"
@@ -52,8 +52,8 @@
     "extensions": [
       "extension/ultrawork.ts"
     ],
-    "video": "https://github.com/brutc/pi-ultra-scout/raw/main/docs/demo.mp4",
-    "image": "https://github.com/brutc/pi-ultra-scout/raw/main/docs/preview.png"
+    "video": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout/raw/master/docs/demo.mp4",
+    "image": "https://github.com/BrutchsamaJeanLouis/pi-ultra-scout/raw/master/docs/preview.png"
   },
   "bundledDependencies": [
     "@earendil-works/pi-ai",
