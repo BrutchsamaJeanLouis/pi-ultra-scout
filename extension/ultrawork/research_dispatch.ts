@@ -253,7 +253,7 @@ export async function dispatchResearch(input: DispatchInput): Promise<DispatchRe
   let artifact: ResearchArtifact | undefined;
   if (existsSync(artifactPath)) {
     try {
-      artifact = validateArtifact(readFileSync(artifactPath, "utf-8"), input.claimId);
+      artifact = validateArtifact(readFileSync(artifactPath, "utf-8"), input.claimId) ?? undefined;
       if (!artifact) emit(`artifact exists but FAILED validation`);
     } catch (e: any) {
       emit(`artifact read error: ${String(e).slice(0, 120)}`);

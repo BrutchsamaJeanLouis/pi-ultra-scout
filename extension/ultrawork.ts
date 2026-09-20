@@ -590,7 +590,7 @@ export default function (pi: ExtensionAPI) {
             "Re-read TODO.md and determine whether work remains. " +
             "If unfinished, continue using tools. " +
             "Only finish once every TODO is [x] and all verification passes." }],
-          display: "ulw: post-compaction continuation",
+          display: true,
         },
         { triggerTurn: true },
       );
@@ -883,7 +883,7 @@ export default function (pi: ExtensionAPI) {
             content: [{ type: "text", text: "You stopped but TODO.md still has unchecked items. " +
               "Resume. Use tools. Do NOT summarize progress — act on the next item.\n" +
               "Review completed work: (1) syntax errors or failed tests?, (2) full smoketest including UI?, (3) all TODO.md items [x]. Report ONLY failures. If none, say Verification PASS." }],
-            display: "ulw: incomplete-TODO resume",
+            display: true,
           },
           { triggerTurn: true },
         );

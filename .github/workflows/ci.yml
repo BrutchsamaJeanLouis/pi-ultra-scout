@@ -78,6 +78,9 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+      
       - name: Setup npm provenance
         run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
       
