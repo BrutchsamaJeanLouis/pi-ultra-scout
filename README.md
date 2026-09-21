@@ -13,7 +13,7 @@
 | Model | WITHOUT ulw | WITH ulw |
 |-------|-------------|----------|
 | **4B local** (qwen3.5-4b) | **Fails** — timeout, no artifact (DQ 0.00) | **Perfect** — all 5 defaults correct, green test (DQ 1.00) |
-| **3B active** (nemotron-3.5) | Variable — 2.5 wrong defaults, 50% tests fail (DQ 0.62) | Lifted — 100% tests pass, 2 wrong defaults (DQ 0.84) |
+| **3B active** (nemotron-3.5) | Variable — 1.7 wrong defaults (range 0–3), 67% tests (DQ 0.73, n=3) | Lifted — 100% tests pass, 1.0 wrong (range 0–2) (DQ 0.89, n=2) |
 | **27B** (qwen3.8-27b) | Robust — 0 wrong, 100% tests (DQ 0.97) | Robust — 0 wrong, 100% tests, evidence artifact (DQ 0.97) |
 
 **The mechanism's value is strongest on the weakest model.** A 4B local model *cannot complete the task* without ulw but *succeeds perfectly* with it. This is not about raw doc access — the control reads local READMEs — it's about **auditable verification before code** and **guaranteed completion** for weak weights.

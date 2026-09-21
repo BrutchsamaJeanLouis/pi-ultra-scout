@@ -1,0 +1,945 @@
+[
+  {
+    "snap": "A-C0-20260918-203039",
+    "payload": "A",
+    "cond": "C0",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": 1.0
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry",
+      "https://www.npmjs.com/package/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "1584",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 12,
+      "first_write_line": 37,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 1.0,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 1.0,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C0-4b-20260919-162319",
+    "payload": "A",
+    "cond": "C0",
+    "probe_ts": false,
+    "table": {
+      "retries": {
+        "status": "missing",
+        "found": null
+      },
+      "minTimeout": {
+        "status": "missing",
+        "found": null
+      },
+      "maxTimeout": {
+        "status": "missing",
+        "found": null
+      },
+      "factor": {
+        "status": "missing",
+        "found": null
+      },
+      "randomize": {
+        "status": "missing",
+        "found": null
+      }
+    },
+    "wrong": [],
+    "missing_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "correct_required": [],
+    "fact_errors": 0,
+    "fact_correct": 0,
+    "cited_urls": [],
+    "url_ok": false,
+    "todo_boxes": 0,
+    "tests_green": false,
+    "rc": "124",
+    "dur_s": "6600",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 23,
+      "first_write_line": null,
+      "verify_before_code": false
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": false,
+      "signature_ok": false,
+      "typed": false,
+      "has_error_handling": false,
+      "hallucinated_options": [
+        "<no src>"
+      ],
+      "score": 0.0
+    },
+    "deliverable_quality": 0.0,
+    "dq_axes": {
+      "fact": 0.0,
+      "citation": 0.0,
+      "code": 0.0,
+      "behavior": 0.0
+    }
+  },
+  {
+    "snap": "A-C0-nemo-20260919-093540",
+    "payload": "A",
+    "cond": "C0",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "wrong",
+        "found": 0.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "wrong",
+        "found": 10000.0
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [
+      "retries",
+      "maxTimeout"
+    ],
+    "missing_required": [],
+    "correct_required": [
+      "minTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 2,
+    "fact_correct": 3,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry#readme",
+      "https://www.npmjs.com/package/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "2057",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 18,
+      "first_write_line": 18,
+      "verify_before_code": false
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 0.9,
+    "dq_axes": {
+      "fact": 0.6,
+      "citation": 1.0,
+      "code": 1.0,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C0-nemo-20260919-140535",
+    "payload": "A",
+    "cond": "C0",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "wrong",
+        "found": 0.0
+      },
+      "minTimeout": {
+        "status": "wrong",
+        "found": 200.0
+      },
+      "maxTimeout": {
+        "status": "wrong",
+        "found": 30000.0
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [
+      "retries",
+      "minTimeout",
+      "maxTimeout"
+    ],
+    "missing_required": [],
+    "correct_required": [
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 3,
+    "fact_correct": 2,
+    "cited_urls": [],
+    "url_ok": false,
+    "todo_boxes": 0,
+    "tests_green": false,
+    "rc": "0",
+    "dur_s": "3754",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 20,
+      "first_write_line": 20,
+      "verify_before_code": false
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 0.35,
+    "dq_axes": {
+      "fact": 0.4,
+      "citation": 0.0,
+      "code": 1.0,
+      "behavior": 0.0
+    }
+  },
+  {
+    "snap": "A-C1-20260919-060108",
+    "payload": "A",
+    "cond": "C1",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry",
+      "https://raw.githubusercontent.com/sindresorhus/p-retry/main/readme.md",
+      "https://www.npmjs.com/package/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "3255",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 24,
+      "first_write_line": 48,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 1.0,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 1.0,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C2-20260919-031907",
+    "payload": "A",
+    "cond": "C2",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": 1.0
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry#readme",
+      "https://www.npmjs.com/package/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "4533",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 10,
+      "first_write_line": 29,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 1.0,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 1.0,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C2-4b-20260919-181319",
+    "payload": "A",
+    "cond": "C2",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry",
+      "https://github.com/sindresorhus/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "2479",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 43,
+      "first_write_line": 84,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 1.0
+    },
+    "deliverable_quality": 1.0,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 1.0,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C2-nemo-20260919-150810",
+    "payload": "A",
+    "cond": "C2",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "wrong",
+        "found": 0.0
+      },
+      "minTimeout": {
+        "status": "wrong",
+        "found": 0.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [
+      "retries",
+      "minTimeout"
+    ],
+    "missing_required": [],
+    "correct_required": [
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 2,
+    "fact_correct": 3,
+    "cited_urls": [
+      "https://github.com/sindresorhus/p-retry",
+      "https://github.com/tim-kos/node-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 0,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "4508",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 25,
+      "first_write_line": 34,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": false,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.838,
+    "dq_axes": {
+      "fact": 0.6,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "B-C0-20260919-043441",
+    "payload": "B",
+    "cond": "C0",
+    "probe_ts": true,
+    "table": {
+      "headersTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "bodyTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "connectTimeout": {
+        "status": "correct",
+        "found": 10000.0
+      },
+      "keepAliveTimeout": {
+        "status": "correct",
+        "found": 4000.0
+      },
+      "keepAliveMaxTimeout": {
+        "status": "correct",
+        "found": 600000.0
+      },
+      "keepAliveTimeoutThreshold": {
+        "status": "correct",
+        "found": 2000.0
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "headersTimeout",
+      "bodyTimeout",
+      "connectTimeout"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 3,
+    "cited_urls": [
+      "https://github.com/nodejs/undici/blob/main/docs/docs/Client.md",
+      "https://github.com/nodejs/undici/blob/main/docs/docs/Dispatcher.md",
+      "https://github.com/nodejs/undici/blob/main/docs/docs/Agent.md",
+      "https://github.com/nodejs/undici/blob/main/docs/docs/Fetch.md",
+      "https://undici.node.com/"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "490",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 19,
+      "first_write_line": 34,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": false,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.938,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "B-C1-20260919-044253",
+    "payload": "B",
+    "cond": "C1",
+    "probe_ts": true,
+    "table": {
+      "headersTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "bodyTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "connectTimeout": {
+        "status": "correct",
+        "found": 10000.0
+      },
+      "keepAliveTimeout": {
+        "status": "correct",
+        "found": 4000.0
+      },
+      "keepAliveMaxTimeout": {
+        "status": "correct",
+        "found": 600000.0
+      },
+      "keepAliveTimeoutThreshold": {
+        "status": "correct",
+        "found": 2000.0
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "headersTimeout",
+      "bodyTimeout",
+      "connectTimeout"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 3,
+    "cited_urls": [
+      "https://undici.nodejs.org/#/docs/api/Client",
+      "https://undici.nodejs.org/#/docs/api/Agent",
+      "https://undici.nodejs.org/#/docs/api/Dispatcher",
+      "https://undici.nodejs.org/#/docs/api/Connector"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "642",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 24,
+      "first_write_line": 41,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": false,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.938,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "B-C2-20260919-045335",
+    "payload": "B",
+    "cond": "C2",
+    "probe_ts": true,
+    "table": {
+      "headersTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "bodyTimeout": {
+        "status": "correct",
+        "found": 300000.0
+      },
+      "connectTimeout": {
+        "status": "correct",
+        "found": 10000.0
+      },
+      "keepAliveTimeout": {
+        "status": "correct",
+        "found": 4000.0
+      },
+      "keepAliveMaxTimeout": {
+        "status": "correct",
+        "found": 600000.0
+      },
+      "keepAliveTimeoutThreshold": {
+        "status": "correct",
+        "found": 2000.0
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "headersTimeout",
+      "bodyTimeout",
+      "connectTimeout"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 3,
+    "cited_urls": [
+      "https://undici.nodejs.org/docs/latest/api/Client.html",
+      "https://undici.nodejs.org/docs/latest/api/Dispatcher.html",
+      "https://raw.githubusercontent.com/nodejs/undici/main/docs/docs/api/Client.md",
+      "https://raw.githubusercontent.com/nodejs/undici/main/docs/docs/api/Dispatcher.md"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "3181",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 11,
+      "first_write_line": 31,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 1,
+    "evidence": [
+      {
+        "claim_id": "claim_1",
+        "status": "verified",
+        "confidence": 0.97
+      }
+    ],
+    "code_quality": {
+      "uses_retry_wrap": false,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.938,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C0-nemo-20260919-185440",
+    "payload": "A",
+    "cond": "C0",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://www.npmjs.com/package/p-retry",
+      "https://github.com/sindresorhus/p-retry",
+      "http://127.0.0.1:1234"
+    ],
+    "url_ok": true,
+    "todo_boxes": 0,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "1128",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 19,
+      "first_write_line": 27,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": false,
+      "typed": true,
+      "has_error_handling": true,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.938,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  },
+  {
+    "snap": "A-C2-nemo-20260919-191329",
+    "payload": "A",
+    "cond": "C2",
+    "probe_ts": true,
+    "table": {
+      "retries": {
+        "status": "correct",
+        "found": 10.0
+      },
+      "minTimeout": {
+        "status": "correct",
+        "found": 1000.0
+      },
+      "maxTimeout": {
+        "status": "correct",
+        "found": "inf"
+      },
+      "factor": {
+        "status": "correct",
+        "found": 2.0
+      },
+      "randomize": {
+        "status": "correct",
+        "found": "false"
+      }
+    },
+    "wrong": [],
+    "missing_required": [],
+    "correct_required": [
+      "retries",
+      "minTimeout",
+      "maxTimeout",
+      "factor",
+      "randomize"
+    ],
+    "fact_errors": 0,
+    "fact_correct": 5,
+    "cited_urls": [
+      "https://www.npmjs.com/package/p-retry",
+      "https://github.com/sindresorhus/p-retry"
+    ],
+    "url_ok": true,
+    "todo_boxes": 5,
+    "tests_green": true,
+    "rc": "0",
+    "dur_s": "1719",
+    "verify_before_code": {
+      "found": true,
+      "first_doc_line": 13,
+      "first_write_line": 21,
+      "verify_before_code": true
+    },
+    "evidence_artifacts": 0,
+    "evidence": [],
+    "code_quality": {
+      "uses_retry_wrap": true,
+      "signature_ok": true,
+      "typed": true,
+      "has_error_handling": false,
+      "hallucinated_options": [],
+      "score": 0.75
+    },
+    "deliverable_quality": 0.938,
+    "dq_axes": {
+      "fact": 1.0,
+      "citation": 1.0,
+      "code": 0.75,
+      "behavior": 1.0
+    }
+  }
+]

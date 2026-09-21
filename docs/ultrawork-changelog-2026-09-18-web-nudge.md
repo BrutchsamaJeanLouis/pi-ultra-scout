@@ -114,17 +114,17 @@ artifact folded into the ledger, compact summary (no trace dump) returned.
 - **Replication:** 3–4 replicates per cell for stochasticity (n=3–4 dummy, n=3 27B).
 - **Metric:** Deliverable Quality (DQ, 0–1) = composite of fact accuracy, behavior (live test), citation, code quality — answers "how much better/worse is the artifact."
 
-### Paper Findings (as of 09-19 19:30, 11 valid cells scored)
+### Paper Findings (as of 09-21 re-grade, 13 valid cells scored)
 
 | Model | Condition | n | DQ | fact_err | Tests | Completes |
 |---|---|---|---|---|---|---|
 | **4b local** | WITHOUT | 1 | **0.00** | — | False | **No (cap hit)** |
 | **4b local** | WITH | 1 | **1.00** | **0** | **True** | **Yes (perfect)** |
-| **3B active** | WITHOUT | 2 | 0.62 | 2.5 | 50% | Yes (variable) |
-| **3B active** | WITH | 1 | 0.84 | 2.0 | 100% | Yes (lift) |
+| **3B active** | WITHOUT | 3 | 0.73 | 1.7 | 67% | Yes (variable) |
+| **3B active** | WITH | 2 | 0.89 | 1.0 | 100% | Yes (lift) |
 | **27B** | C0/C1/C2 | 2 each | 0.97 | 0.0 | 100% | Yes |
 
-**Headline:** The weakest model (4B local) **fails to complete** without ulw but **succeeds perfectly** with ulw (DQ 1.0, all 5 defaults correct, green test). The 3B-active cloud model lifts DQ from 0.62 → 0.84. 27B is robust regardless.
+**Headline:** The weakest model (4B local) **fails to complete** without ulw but **succeeds perfectly** with ulw (DQ 1.0, all 5 defaults correct, green test). The 3B-active cloud model lifts DQ from 0.73 → 0.89. 27B is robust regardless.
 
 ### Paper Assets
 - `experiments/EXPERIMENT.md` — full protocol, dummy-proof design, DQ metric, replication protocol
@@ -140,5 +140,5 @@ artifact folded into the ledger, compact summary (no trace dump) returned.
 
 ### Artifacts
 - All ground truth LIVE-verified 2026-09-18 (browser + on-disk): p-retry retries=10, undici timeouts
-- Scoreboard: `experiments/runs/scoreboard.json` (11 valid rows)
+- Scoreboard: `experiments/runs/scoreboard.json` (13 valid rows)
 - Voided cells documented (conn error, degenerate) — never averaged

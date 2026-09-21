@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [1.0.2] - 2026-09-21
+
+### Fixed (data / paper)
+- **Corrected the nemo aggregate.** Two valid late reps from the replication grid (`A-C0-nemo-...185440`, `A-C2-nemo-...191329`) finished after the paper was frozen and were never graded into the scoreboard. Grading them in:
+  - nemo **WITHOUT** (C0): n=2 → **n=3** — DQ 0.62 → **0.73**, wrong defaults 2.5 → **1.7** (range 0–3), tests 50% → 67%.
+  - nemo **WITH** (C2): n=1 → **n=2** — DQ 0.84 → **0.89**, wrong defaults 2.0 → **1.0** (range 0–2). The single “2 wrong defaults” run is now **1 of 2**; the other documented all 5 p-retry defaults correctly. (One grader false-negative on `bun test` stdout-only capture was corrected: `bun_test_rc=0` ⇒ tests green.)
+- Updated the README TL;DR table, the paper table + Figure 2 caption, and both changelogs to the corrected numbers; regenerated `paper.pdf` and `charts/out/fig_main_comparison.png`.
+- The 4B-local (fails-without → perfect-with) and 27B rows are unchanged.
+
+### Added
+- Committed the compact graded data (`experiments/runs/scoreboard.json`, `aggregate.json`) and the paper figures so the reported numbers are auditable / reproducible from the repo.
+
+---
+
 ## [1.0.1] - 2026-09-21
 
 ### Fixed (docs)
@@ -73,11 +87,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
   - `TROUBLESHOOTING.md` — Common issues & fixes
   - `CHANGELOG.md` — This file
 
-### Key Findings (from 11 valid scored cells)
+### Key Findings (from 13 valid scored cells)
 | Model | WITHOUT ulw | WITH ulw |
 |-------|-------------|----------|
 | 4B local | DQ 0.00, timeout, no artifact | **DQ 1.00**, perfect, completes |
-| 3B active | DQ 0.62, 2.5 errors, 50% tests | DQ 0.84, 2.0 errors, 100% tests |
+| 3B active | DQ 0.73, 1.7 errors (0–3), 67% tests | DQ 0.89, 1.0 errors (0–2), 100% tests |
 | 27B | DQ 0.97, robust | DQ 0.97, robust + evidence artifact |
 
 **Headline:** The mechanism's value is strongest on the weakest model — 4B local *fails to complete* without ulw but *succeeds perfectly* with it.

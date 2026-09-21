@@ -1,6 +1,6 @@
 {
   "name": "pi-ultra-scout",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Ultrawork web-nudge system for pi: deterministic trust-shape detector + sequential research_dispatch tool that spawns a fresh same-weight librarian to browse live docs and return compact evidence artifacts. Protects weak local models from confidently hallucinating API defaults.",
   "main": "extension/ultrawork.ts",
   "types": "extension/ultrawork.ts",

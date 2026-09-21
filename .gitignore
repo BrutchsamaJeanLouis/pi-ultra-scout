@@ -7,13 +7,18 @@ node_modules/
 dist/
 build/
 
-# Experiment runs (large, generated)
-experiments/runs/
+# Experiment runs (large, generated) — keep the compact graded data
+experiments/runs/*
 !experiments/runs/.gitkeep
+!experiments/runs/scoreboard.json
+!experiments/runs/aggregate.json
 
-# Generated charts
-charts/out/
+# Generated charts — keep the paper figures
+charts/out/*
 !charts/out/.gitkeep
+!charts/out/fig_main_comparison.png
+!charts/out/fig2_fact_errors.png
+!charts/out/fig3_vbc_time.png
 
 # Generated paper PDF
 paper/paper.pdf
