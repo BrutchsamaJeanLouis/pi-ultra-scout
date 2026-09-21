@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [1.0.3] - 2026-09-21
+
+### Added (docs / cross-linking)
+- **Zenodo DOI badge + citation in README.** The paper is now archived on Zenodo (v2, corrected aggregate) — README links the stable concept DOI **10.5281/zenodo.22869953**, completing the paper ↔ GitHub ↔ Zenodo cross-linking. No `extension/*.ts` code changed.
+
+---
+
 ## [1.0.2] - 2026-09-21
 
 ### Fixed (data / paper)

@@ -5,6 +5,7 @@
 [![pi extension](https://img.shields.io/badge/pi-extension-blue?logo=npm)](https://www.npmjs.com/package/pi-ultra-scout)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![paper](https://img.shields.io/badge/paper-3%20pages-orange)](paper/paper.pdf)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22869953.svg)](https://doi.org/10.5281/zenodo.22869953)
 
 ---
 
@@ -155,7 +156,7 @@ PI_ULW_OFF=1 pi -p --provider llamacpp --model qwen3.8-27b "Task..."
 
 ## The Experiment (Reproducible Ablation)
 
-This repo includes the full controlled experiment from the paper. Run it yourself:
+This repo includes the full controlled experiment from the paper. The paper is archived and citable on Zenodo — **DOI [10.5281/zenodo.22869953](https://doi.org/10.5281/zenodo.22869953)** (v2, corrected aggregate). Run it yourself:
 
 ```bash
 cd experiments
