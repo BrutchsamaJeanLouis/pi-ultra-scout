@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
+import { homedir } from "os";
 import { EpistemicProtocol } from "./ultrawork/epistemic_protocol";
 import { createResearchLoop, type ResearchLoopEngine } from "./ultrawork/research_loop";
 import {
@@ -96,6 +97,52 @@ export default function (pi: ExtensionAPI) {
   const ULW_NO_DISPATCH = process.env.PI_ULW_NO_DISPATCH === "1"; // C1: prompt+nudge on, research_dispatch tool absent
   if (process.env.PI_ULW_AUTOACTIVE === "1" && !ULW_OFF) ultraworkActive = true; // headless runs: activate without /ulw
   ulwLog("LOAD", `env gates: ULW_OFF=${ULW_OFF} ULW_NO_DISPATCH=${ULW_NO_DISPATCH} AUTOACTIVE=${process.env.PI_ULW_AUTOACTIVE === "1"} active=${ultraworkActive}`);
+
+  // ── Status-bar visibility (/ulw-status on|off) ────────────────────
+  // Off hides ONLY the ultrawork status-bar item(s); all background behavior
+  // (scouting, librarian, analysis, loop guard) keeps running unchanged.
+  // Default after a fresh start = on. Persisted to a tiny JSON file next to
+  // the log (repo convention: ~/.pi/agent/extensions/ultrawork.log).
+  const ULW_STATUS_FILE: string =
+    process.env.ULW_STATUS_FILE ??
+    join(homedir(), ".pi", "agent", "extensions", "ultrawork-status.json");
+
+  function loadUlwStatusVisible(): boolean {
+    try {
+      const raw = JSON.parse(readFileSync(ULW_STATUS_FILE, "utf-8"));
+      return raw?.statusBar !== false;
+    } catch {
+      return true; // no file / unreadable → default on
+    }
+  }
+
+  function saveUlwStatusVisible(visible: boolean): void {
+    try {
+      mkdirSync(dirname(ULW_STATUS_FILE), { recursive: true });
+      writeFileSync(
+        ULW_STATUS_FILE,
+        JSON.stringify({ statusBar: visible, at: new Date().toISOString() }, null, 2),
+        "utf-8",
+      );
+    } catch (e: any) {
+      ulwLog("STATUS", `failed to persist status-bar setting: ${String(e).slice(0, 120)}`);
+    }
+  }
+
+  let statusVisible = loadUlwStatusVisible();
+
+  const ULW_STATUS_IDS = ["ultrawork-config", "ultrawork-librarian", "ultrawork-research"];
+
+  // Single gate for every ultrawork status-bar write. While off, updates are
+  // suppressed (nothing is queued — the items simply stay hidden until /ulw-status on).
+  function setUlwStatus(ctx: any, id: string, text: string | undefined): void {
+    try {
+      if (!statusVisible) return;
+      ctx?.ui?.setStatus(id, text);
+    } catch {
+      // status writes must never crash a hook
+    }
+  }
 
   let config: UltraworkConfig = {
     routerBaseUrl: process.env.PI_LLAMA_ROUTER_URL ?? "http://127.0.0.1:1234",
@@ -297,7 +344,7 @@ export default function (pi: ExtensionAPI) {
       .slice(0, MAX_TRACKED_RESOURCES) as CriticalResource[];
 
     ulwLog("CONFIG", `cwd=${cwd} resources=[${resources.map((r) => r.path).join(", ") || "(none)"}]`);
-    ctx.ui.setStatus("ultrawork-config", `inline config loaded — ${resources.length} resources tracked`);
+    setUlwStatus(ctx, "ultrawork-config", `inline config loaded — ${resources.length} resources tracked`);
     ctx.ui.notify(`Ultrawork config: ${resources.length} resources tracked`, "info");
   }
 
@@ -353,7 +400,7 @@ export default function (pi: ExtensionAPI) {
     ulwLog("LIB", `callLibrarian START reason="${reason}" active=${ultraworkActive}`);
 
     if (librarianRunning) {
-      ctx.ui.setStatus("ultrawork-librarian", "skipped: already running");
+      setUlwStatus(ctx, "ultrawork-librarian", "skipped: already running");
       ulwLog("LIB", `SKIPPED: already running (elapsed ${Date.now() - t0}ms)`);
       return null;
     }
@@ -365,14 +412,14 @@ export default function (pi: ExtensionAPI) {
     ulwLog("LIB", `audit scope: untouched=[${untouched.map((r) => r.path).join(", ") || "none"}] stale=[${stale.map((r) => r.path).join(", ") || "none"}] digestBuf=${digestBuffer.length} claimsBuf=${assertionBuffer.size}`);
 
     if (untouched.length === 0 && stale.length === 0 && digestBuffer.length === 0 && assertionBuffer.size === 0) {
-      ctx.ui.setStatus("ultrawork-librarian", "skipped: nothing to audit");
+      setUlwStatus(ctx, "ultrawork-librarian", "skipped: nothing to audit");
       ulwLog("LIB", "SKIPPED: nothing to audit");
       librarianRunning = false;
       return null;
     }
 
     const libModel = resolveLibrarianModel(ctx);
-    ctx.ui.setStatus("ultrawork-librarian", `calling ${libModel?.id ?? "no model"}...`);
+    setUlwStatus(ctx, "ultrawork-librarian", `calling ${libModel?.id ?? "no model"}...`);
     ulwLog("LIB", `librarian model: ${libModel?.id ?? "NONE"} (override=${process.env.PI_LIBRARIAN_MODEL || "none"})`);
 
     try {
@@ -407,7 +454,7 @@ export default function (pi: ExtensionAPI) {
       ulwLog("LIB", `model response (${Date.now() - t0}ms): ${JSON.stringify(bullets).slice(0, 500)}`);
 
       if (!bullets) {
-        ctx.ui.setStatus("ultrawork-librarian", "empty response from model");
+        setUlwStatus(ctx, "ultrawork-librarian", "empty response from model");
         ulwLog("LIB", "EMPTY response from model — no nudge sent");
         return null;
       }
@@ -428,13 +475,13 @@ export default function (pi: ExtensionAPI) {
       // only if they're still in the buffer's recent window on the next nudge.
       assertionBuffer.clear();
 
-      ctx.ui.setStatus("ultrawork-librarian", "nudge delivered");
+      setUlwStatus(ctx, "ultrawork-librarian", "nudge delivered");
       ulwLog("LIB", `NUDGE delivered as steer (${Date.now() - t0}ms): ${bullets.replace(/\n/g, " | ").slice(0, 300)}`);
       return bullets;
     } catch (e: any) {
       const msg = String(e).slice(0, 60);
       ulwLog("LIB", `ERROR: ${msg} (elapsed ${Date.now() - t0}ms)`);
-      ctx.ui.setStatus("ultrawork-librarian", `librarian check failed: ${msg}`);
+      setUlwStatus(ctx, "ultrawork-librarian", `librarian check failed: ${msg}`);
       ctx.ui.notify(`Librarian failed: ${msg}`, "error");
       return null;
     } finally {
@@ -450,13 +497,13 @@ export default function (pi: ExtensionAPI) {
     const pendingClaims = getClaimsNeedingResearch(engine.state);
     ulwLog("RESEARCH", `runResearchLoop START pending=${pendingClaims.length} ids=[${pendingClaims.map((c) => c.id).join(", ") || "none"}]`);
     if (pendingClaims.length === 0) {
-      ctx.ui.setStatus("ultrawork-research", "no claims need research");
+      setUlwStatus(ctx, "ultrawork-research", "no claims need research");
       return "No claims need research (each is already >= 0.5 confidence or has hit its round cap).";
     }
 
-    ctx.ui.setStatus("ultrawork-research", `re-scoring ${pendingClaims.length} claim(s) from memory...`);
+    setUlwStatus(ctx, "ultrawork-research", `re-scoring ${pendingClaims.length} claim(s) from memory...`);
     await engine.runFullLoop(rawLLMCall);
-    ctx.ui.setStatus("ultrawork-research", "re-score complete");
+    setUlwStatus(ctx, "ultrawork-research", "re-score complete");
     const after = Array.from(engine.state.claims.values()).map((c) => `${c.id}:${c.status}:${c.confidence.toFixed(2)}`).join(", ");
     ulwLog("RESEARCH", `runResearchLoop END claims=[${after}]`);
 
@@ -798,7 +845,7 @@ export default function (pi: ExtensionAPI) {
         const model: any = (ctx as any).model;
         const provider = model?.provider ?? "llamacpp";
         const modelId = model?.id ?? "qwen3.8-27b";
-        ctx.ui.setStatus?.("ultrawork-research", `dispatching researcher (${modelId}) for ${claim.id}…`);
+        setUlwStatus(ctx, "ultrawork-research", `dispatching researcher (${modelId}) for ${claim.id}…`);
 
         const r = await dispatchResearch({
           provider,
@@ -932,6 +979,37 @@ export default function (pi: ExtensionAPI) {
       await pi.appendEntry("ultrawork-activated", {
         content: "Ultrawork active: loop guard + verification + librarian + evidence tracking enabled.",
       });
+    },
+  });
+
+  pi.registerCommand("ulw-status", {
+    description: "Toggle the ultrawork status-bar item(s): on | off. Off hides the status bar ONLY — all ultrawork behavior keeps running.",
+    handler: async (args, ctx) => {
+      const a = String(args ?? "").trim().toLowerCase();
+      if (a === "on") {
+        statusVisible = true;
+        saveUlwStatusVisible(true);
+        ulwLog("CMD", "/ulw-status on — status bar enabled");
+        ctx.ui.notify("ultrawork status bar: ON", "info");
+        return;
+      }
+      if (a === "off") {
+        statusVisible = false;
+        saveUlwStatusVisible(false);
+        for (const id of ULW_STATUS_IDS) {
+          try {
+            ctx.ui.setStatus(id, undefined); // clear any currently visible item
+          } catch {
+            // ignore
+          }
+        }
+        ulwLog("CMD", "/ulw-status off — status bar hidden (behavior unchanged)");
+        ctx.ui.notify("ultrawork status bar: OFF (background behavior unchanged)", "info");
+        return;
+      }
+      // no/unknown arg → show current state
+      ulwLog("CMD", `/ulw-status (no action) args="${a || ""}" visible=${statusVisible}`);
+      ctx.ui.notify(`ultrawork status bar is ${statusVisible ? "ON" : "OFF"} — use /ulw-status on|off`, "info");
     },
   });
 
