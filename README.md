@@ -133,6 +133,13 @@ pi
 #   > /ulw
 #   > <your task>
 
+# Toggle it off again later (stops prompt injection, loop-guard, librarian,
+# evidence tracking — behavior off, extension stays installed):
+#   > /ulw off
+# Re-enable with:
+#   > /ulw on
+# (bare `/ulw` = `/ulw on`, for backward compat)
+
 # Headless: activate via env var
 PI_ULW_AUTOACTIVE=1 pi -p "Your task here..."
 ```

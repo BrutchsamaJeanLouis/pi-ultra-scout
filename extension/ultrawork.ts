@@ -970,11 +970,20 @@ export default function (pi: ExtensionAPI) {
   // ── Commands ───────────────────────────────────────────────────
 
   pi.registerCommand("ulw", {
-    description: "Activate loop-guard + verification + librarian regrounding for next task",
-    handler: async (_args, _ctx) => {
+    description: "on = activate, off = deactivate loop-guard + verification + librarian regrounding (no arg = on, backward compat)",
+    handler: async (args, _ctx) => {
+      const a = String(args ?? "").trim().toLowerCase();
+      if (a === "off") {
+        ultraworkActive = false;
+        retries = 0;
+        ulwLog("CMD", "/ulw off — ultrawork deactivated (hooks no-op; /ulw on to re-enable)");
+        _ctx.ui.notify("ultrawork disabled. Use /ulw on to re-enable.", "info");
+        return;
+      }
+      // "on" or no-arg → activate (no-arg kept for backward compat)
       ultraworkActive = true;
       retries = 0;
-      ulwLog("CMD", "/ulw — ultrawork activated (retries reset)");
+      ulwLog("CMD", `/ulw ${a || "(no arg)"} — ultrawork activated (retries reset)`);
       _ctx.ui.notify("ultrawork enabled. follow up with prompt", "info");
       await pi.appendEntry("ultrawork-activated", {
         content: "Ultrawork active: loop guard + verification + librarian + evidence tracking enabled.",

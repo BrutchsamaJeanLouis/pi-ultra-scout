@@ -9,9 +9,10 @@
     "test:shapes": "cd extension && bun test ./ulw-analysis/probe_shapes.ts",
     "test:dispatch": "cd extension && bun test ./ulw-analysis/smoke_dispatch.ts",
     "test:wiring": "cd extension && bun test ./ulw-analysis/smoke_wiring.ts",
+    "test:ulw-toggle": "cd extension && bun test ./ulw-analysis/smoke_ulw_toggle.ts",
     "test:evidence": "cd extension && bun test ./ulw-analysis/probe_evidence.ts",
-    "test:all": "npm run test:shapes && npm run test:dispatch && npm run test:wiring && npm run test:evidence",
-    "test:publish": "npm run test:shapes && npm run test:evidence && npm run test:dispatch",
+    "test:all": "npm run test:shapes && npm run test:dispatch && npm run test:wiring && npm run test:evidence && npm run test:ulw-toggle",
+    "test:publish": "npm run test:shapes && npm run test:evidence && npm run test:dispatch && npm run test:ulw-toggle",
     "lint": "npm run build",
     "prepublishOnly": "npm run test:publish",
     "pi:package": "echo 'Pi package manifest validated'"
@@ -49,7 +50,9 @@
   "devDependencies": {
     "typescript": "^6.0.2",
     "@types/node": "^20.10.0",
-    "@types/bun": "^1.1.0"
+    "@types/bun": "^1.1.0",
+    "@earendil-works/pi-tui": "^1.0.4",
+    "typebox": "^1.3.36"
   },
   "pi": {
     "extensions": [

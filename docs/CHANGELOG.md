@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ---
 
+## [1.0.5] - 2026-10-08
+
+### Added
+- **`/ulw on|off` toggle.** The `/ulw` command now takes an optional argument:
+  - `/ulw on` (or bare `/ulw`, unchanged behavior) — activate loop-guard + verification + librarian regrounding
+  - `/ulw off` — deactivate all ultrawork behavior (prompt injection, loop-guard, librarian, evidence tracking no-op). The extension stays installed; `/ulw on` re-enables.
+  - All hooks were already gated on the internal `ultraworkActive` flag; `/ulw off` simply clears it.
+- **`smoke_ulw_toggle.ts`** — unit smoke test driving the real extension factory with a mocked pi API (no live model needed); asserts default-off, bare-arg compat, on/off/on transitions via the real `before_agent_start` hook. Added to `test:publish` and `test:all`.
+- `@earendil-works/pi-tui` + `typebox` added to devDependencies so the full-extension import resolves in tests/CI (dev-only — never installed by consumers).
+
+---
+
+## [1.0.4] - 2026-10-07
+
+### Added
+- **`/ulw-status on|off`** — hide/show the ultrawork status-bar item(s) only; behavior unchanged. Persisted to `~/.pi/agent/extensions/ultrawork-status.json`.
+
+---
+
 ## [1.0.3] - 2026-09-21
 
 ### Added (docs / cross-linking)
